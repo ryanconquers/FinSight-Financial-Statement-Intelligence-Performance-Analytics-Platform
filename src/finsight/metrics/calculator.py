@@ -249,6 +249,8 @@ def _calculate_period(
     output: list[MetricResult] = []
     formulas = {
         "revenue_growth": "(current revenue / prior-year revenue) - 1",
+        "gross_profit": "revenue - absolute cost of goods sold",
+        "gross_margin": "gross profit / revenue",
         "ebitda_margin": "EBITDA / revenue",
         "ebit_margin": "EBIT / revenue",
         "net_profit_margin": "net income / revenue",
@@ -293,6 +295,19 @@ def _calculate_period(
         output.append(_result(anchor, metric_id, "Revenue growth", formulas[metric_id], value=(now.value / old.value) - 1, inputs=[old, now]))
 
     # Profitability margins.
+    metric_id = "gross_profit"
+    gross_inputs, issue = get_inputs(metric_id, (("income_statement", "revenue"), ("income_statement", "cost_of_goods_sold")), unit="amount")
+    if issue:
+        output.append(issue)
+        output.append(_result(anchor, "gross_margin", "Gross margin", formulas["gross_margin"], status=issue.status, explanation=issue.explanation, inputs=issue.input_observations))
+    elif gross_inputs[0].value <= 0:
+        output.append(_invalid(anchor, metric_id, "Gross profit", formulas[metric_id], "Revenue must be positive.", gross_inputs, unit="amount"))
+        output.append(_invalid(anchor, "gross_margin", "Gross margin", formulas["gross_margin"], "Revenue must be positive.", gross_inputs))
+    else:
+        gross_profit = gross_inputs[0].value - abs(gross_inputs[1].value)
+        output.append(_result(anchor, metric_id, "Gross profit", formulas[metric_id], value=gross_profit, unit=gross_inputs[0].unit, currency=gross_inputs[0].currency, inputs=gross_inputs))
+        output.append(_result(anchor, "gross_margin", "Gross margin", formulas["gross_margin"], value=gross_profit / gross_inputs[0].value, inputs=gross_inputs))
+
     for metric_id, line_item, name in (
         ("ebitda_margin", "ebitda", "EBITDA margin"),
         ("ebit_margin", "ebit", "EBIT margin"),

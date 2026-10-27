@@ -68,6 +68,77 @@ function isAssessment(item) {
     && item.evidence.every(isMetric);
 }
 
+function isInsight(item) {
+  return isRecord(item)
+    && isString(item.insight_id)
+    && ["observed_trend", "screening_indicator", "coincident_indicators", "contrasting_indicators", "peer_comparison"].includes(item.category)
+    && isString(item.finding)
+    && Array.isArray(item.periods)
+    && item.periods.every(isString)
+    && isString(item.rule)
+    && Array.isArray(item.observed_values)
+    && item.observed_values.every((value) => isRecord(value)
+      && isString(value.metric_id)
+      && isString(value.financial_year)
+      && isNullableString(value.value)
+      && isString(value.unit)
+      && isNullableString(value.currency)
+      && ["calculated", "unavailable", "invalid_input"].includes(value.status)
+      && (value.rule_id === undefined || isString(value.rule_id)))
+    && isString(item.limitations)
+    && Array.isArray(item.evidence)
+    && item.evidence.every(isMetric);
+}
+
+function isBenchmark(item) {
+  return isRecord(item)
+    && isString(item.company_id)
+    && ["standalone", "consolidated"].includes(item.statement_basis)
+    && (item.financial_year === null || isString(item.financial_year))
+    && ["available", "insufficient_data"].includes(item.status)
+    && Array.isArray(item.peers_requested)
+    && item.peers_requested.every(isString)
+    && Number.isInteger(item.maximum_compatible_peer_count_for_any_metric)
+    && isString(item.sample_disclosure)
+    && isRecord(item.exclusions)
+    && Object.values(item.exclusions).every((reasons) => Array.isArray(reasons) && reasons.every(isString))
+    && Array.isArray(item.metrics)
+    && item.metrics.every((metric) => isRecord(metric)
+      && isString(metric.metric_id)
+      && ["available", "insufficient_data"].includes(metric.status)
+      && (metric.target_value === undefined || isNullableString(metric.target_value))
+      && (metric.peer_median === undefined || isNullableString(metric.peer_median))
+      && (metric.peer_count === undefined || isNonNegativeInteger(metric.peer_count))
+      && (metric.exclusions === undefined || (isRecord(metric.exclusions) && Object.values(metric.exclusions).every(isString)))
+      && Array.isArray(metric.values)
+      && metric.values.every(isPeerValue));
+}
+
+function isPeerValue(value) {
+  return isRecord(value)
+    && isString(value.company_id)
+    && isNullableString(value.value)
+    && isString(value.unit)
+    && isNullableString(value.currency)
+    && isString(value.period_start)
+    && isString(value.period_end)
+    && typeof value.is_target === "boolean"
+    && (value.evidence === null || isMetric(value.evidence))
+    && (value.sources === undefined || (Array.isArray(value.sources) && value.sources.every(isSource)));
+}
+
+function isSource(source) {
+  return isRecord(source)
+    && isString(source.source_id)
+    && isString(source.publisher)
+    && isNullableString(source.source_url)
+    && isNullableString(source.publication_date)
+    && isString(source.retrieved_at)
+    && isString(source.financial_year)
+    && isString(source.statement_basis)
+    && isString(source.statement_type);
+}
+
 function validateData(path, data) {
   const endpoint = path.split("?", 1)[0];
   if (endpoint === "/api/status") {
@@ -109,6 +180,18 @@ function validateData(path, data) {
     validateArray(data.assessments, path, isAssessment);
     return;
   }
+  if (/^\/api\/companies\/[^/]+\/insights$/.test(endpoint)) {
+    if (!isRecord(data) || !isString(data.company_id) || !["standalone", "consolidated"].includes(data.statement_basis)
+      || (data.peer_benchmark_status !== undefined && data.peer_benchmark_status !== null && !["available", "insufficient_data"].includes(data.peer_benchmark_status))) {
+      throw invalidResponse(path, "data must contain company and statement basis fields.");
+    }
+    validateArray(data.insights, path, isInsight);
+    return;
+  }
+  if (/^\/api\/companies\/[^/]+\/benchmark$/.test(endpoint)) {
+    if (!isBenchmark(data)) throw invalidResponse(path, "data has an unexpected benchmark shape.");
+    return;
+  }
   if (/^\/api\/companies\/[^/]+\/provenance$/.test(endpoint)) {
     validateArray(data, path, (item) => isRecord(item)
       && isString(item.source_id)
@@ -119,6 +202,27 @@ function validateData(path, data) {
       && isString(item.financial_year)
       && isString(item.statement_basis)
       && isString(item.statement_type));
+    return;
+  }
+  if (/^\/api\/companies\/[^/]+\/observations$/.test(endpoint)) {
+    validateArray(data, path, (item) => isRecord(item)
+      && isNonNegativeInteger(item.observation_id)
+      && isString(item.company_id)
+      && isString(item.financial_year)
+      && isString(item.period_start)
+      && isString(item.period_end)
+      && ["standalone", "consolidated"].includes(item.statement_basis)
+      && isString(item.statement_type)
+      && isString(item.line_item_id)
+      && isString(item.reported_label)
+      && isNullableString(item.value)
+      && isString(item.unit)
+      && isString(item.currency)
+      && isString(item.source_id)
+      && isString(item.publisher)
+      && isNullableString(item.source_url)
+      && isNullableString(item.publication_date)
+      && isString(item.retrieved_at));
   }
 }
 

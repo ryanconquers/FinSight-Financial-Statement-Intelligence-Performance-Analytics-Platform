@@ -212,3 +212,65 @@ test("requestData validates the company-analysis response and its evidence", asy
     /data\[0\] has an unexpected shape/,
   );
 });
+
+test("requestData validates insights and benchmark response shapes", async () => {
+  const insights = await requestData("https://api.example.test", "/api/companies/TEST_CO/insights", {
+    fetchImpl: async () => jsonResponse({ data: { company_id: "TEST_CO", statement_basis: "consolidated", insights: [] }, meta: { count: 0 } }),
+  });
+  assert.deepEqual(insights.insights, []);
+
+  const benchmark = await requestData("https://api.example.test", "/api/companies/TEST_CO/benchmark?peer_ids=PEER", {
+    fetchImpl: async () => jsonResponse({ data: {
+      company_id: "TEST_CO", statement_basis: "consolidated", financial_year: "FY2025",
+      status: "insufficient_data", peers_requested: ["PEER"], maximum_compatible_peer_count_for_any_metric: 0,
+      sample_disclosure: "Selected group only.", exclusions: { PEER: [] }, metrics: [],
+    }, meta: { metric_count: 0 } }),
+  });
+  assert.equal(benchmark.status, "insufficient_data");
+
+  await assert.rejects(
+    requestData("https://api.example.test", "/api/companies/TEST_CO/benchmark?peer_ids=PEER", {
+      fetchImpl: async () => jsonResponse({ data: { ...benchmark, metrics: [{ metric_id: "revenue_growth", status: "available", peer_median: {}, values: [] }] }, meta: {} }),
+    }),
+    /unexpected benchmark shape/,
+  );
+
+  await assert.rejects(
+    requestData("https://api.example.test", "/api/companies/TEST_CO/insights", {
+      fetchImpl: async () => jsonResponse({ data: { company_id: "TEST_CO", statement_basis: "mixed", insights: [] }, meta: {} }),
+    }),
+    /invalid response/,
+  );
+  await assert.rejects(
+    requestData("https://api.example.test", "/api/companies/TEST_CO/insights", {
+      fetchImpl: async () => jsonResponse({ data: { company_id: "TEST_CO", statement_basis: "consolidated", insights: [{ insight_id: "x", category: "observed_trend", finding: "change", periods: ["FY2025"], rule: "compare", observed_values: [{ value: 4 }], limitations: "test", evidence: [] }] }, meta: {} }),
+    }),
+    /data\[0\] has an unexpected shape/,
+  );
+  await assert.rejects(
+    requestData("https://api.example.test", "/api/companies/TEST_CO/insights", {
+      fetchImpl: async () => jsonResponse({ data: { company_id: "TEST_CO", statement_basis: "consolidated", peer_benchmark_status: 500, insights: [] }, meta: {} }),
+    }),
+    /invalid response/,
+  );
+});
+
+test("requestData validates original reported observation fields", async () => {
+  const observation = {
+    observation_id: 7, company_id: "TEST_CO", financial_year: "FY2025",
+    period_start: "2024-04-01", period_end: "2025-03-31", statement_basis: "consolidated",
+    statement_type: "income_statement", line_item_id: "revenue", reported_label: "Revenue as reported",
+    value: "100", unit: "INR_crore", currency: "INR", source_id: "TEST_SOURCE", publisher: "Test Publisher",
+    source_url: "https://example.invalid/source", publication_date: null, retrieved_at: "2026-10-27",
+  };
+  const values = await requestData("https://api.example.test", "/api/companies/TEST_CO/observations?statement_basis=consolidated", {
+    fetchImpl: async () => jsonResponse({ data: [observation], meta: { count: 1 } }),
+  });
+  assert.equal(values[0].reported_label, "Revenue as reported");
+  await assert.rejects(
+    requestData("https://api.example.test", "/api/companies/TEST_CO/observations", {
+      fetchImpl: async () => jsonResponse({ data: [{ ...observation, value: 100 }], meta: {} }),
+    }),
+    /unexpected shape/,
+  );
+});

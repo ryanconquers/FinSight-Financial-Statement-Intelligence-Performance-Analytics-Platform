@@ -34,17 +34,17 @@ def _check_existing_company(connection: sqlite3.Connection, record: dict[str, ob
 
 def _check_existing_source(connection: sqlite3.Connection, record: dict[str, object]) -> None:
     existing = connection.execute(
-        "SELECT publisher, source_url, retrieved_at, is_synthetic FROM sources WHERE source_id = ?",
+        "SELECT publisher, source_url, publication_date, retrieved_at, is_synthetic FROM sources WHERE source_id = ?",
         (record["source_id"],),
     ).fetchone()
     if existing is None:
         connection.execute(
-            "INSERT INTO sources (source_id, publisher, source_url, retrieved_at, is_synthetic) VALUES (?, ?, ?, ?, 0)",
-            (record["source_id"], record["source_publisher"], record["source_url"], record["retrieved_at"]),
+            "INSERT INTO sources (source_id, publisher, source_url, publication_date, retrieved_at, is_synthetic) VALUES (?, ?, ?, ?, ?, 0)",
+            (record["source_id"], record["source_publisher"], record["source_url"], record.get("source_publication_date"), record["retrieved_at"]),
         )
         return
-    expected = (record["source_publisher"], record["source_url"], record["retrieved_at"], 0)
-    observed = (existing["publisher"], existing["source_url"], existing["retrieved_at"], existing["is_synthetic"])
+    expected = (record["source_publisher"], record["source_url"], record.get("source_publication_date"), record["retrieved_at"], 0)
+    observed = (existing["publisher"], existing["source_url"], existing["publication_date"], existing["retrieved_at"], existing["is_synthetic"])
     if observed != expected:
         raise ValueError(f"Source ID {record['source_id']!r} is already registered with conflicting provenance or synthetic status.")
 
@@ -66,7 +66,12 @@ def import_records(
     records: list[dict[str, object]],
     report: ValidationReport,
 ) -> ValidationReport:
-    """Atomically register metadata, write valid rows and record validation outcomes."""
+    """Atomically register a fully valid dataset; validation errors prevent every write."""
+    if report.errors or report.invalid_rows:
+        report.import_status = "not_imported_validation_errors"
+        report.database_rows_written = 0
+        report.database_summary = "Dataset rejected because validation errors exist; no company, source, or observation rows were registered."
+        return report
     if not records:
         report.import_status = "not_imported_validation_errors" if report.errors else "no_rows_to_import"
         report.database_summary = "No valid records; database was not modified."
@@ -121,10 +126,8 @@ def import_records(
         return report
 
     report.database_rows_written = len(records)
-    report.database_summary = f"Imported {len(records)} valid of {report.total_rows} rows in one transaction."
-    if report.invalid_rows:
-        report.import_status = "partial_import_with_validation_errors"
-    elif report.findings:
+    report.database_summary = f"Imported all {len(records)} validated rows in one transaction."
+    if report.findings:
         report.import_status = "imported_with_findings"
     else:
         report.import_status = "imported"

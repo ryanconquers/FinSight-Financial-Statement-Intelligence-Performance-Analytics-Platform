@@ -18,7 +18,7 @@ REQUIRED_COLUMNS = (
     "unit", "currency", "source_id", "source_publisher", "source_url",
     "retrieved_at", "is_synthetic",
 )
-OPTIONAL_COLUMNS = ("ticker",)
+OPTIONAL_COLUMNS = ("ticker", "source_publication_date")
 STATEMENT_BASES = {"standalone", "consolidated"}
 STATEMENT_TYPES = {"income_statement", "balance_sheet", "cash_flow_statement"}
 CURRENCY_PATTERN = re.compile(r"^[A-Z]{3}$")
@@ -63,6 +63,7 @@ def validate_observations(
     row_findings: dict[int, list[Finding]] = {index: [] for index in range(len(rows))}
     parsed_values: dict[int, Decimal] = {}
     parsed_dates: dict[int, tuple[date, date, date]] = {}
+    parsed_publications: dict[int, date | None] = {}
     parsed_synthetic: dict[int, bool] = {}
 
     def add(index: int, severity: str, code: str, message: str, field: str | None = None) -> None:
@@ -105,6 +106,11 @@ def validate_observations(
             duration = (end - start).days + 1
             if start <= end and not 350 <= duration <= 380:
                 add(index, "manual_review", "unusual_annual_period", f"Reporting period spans {duration} days; confirm the period is comparable to an annual filing.", "period_start")
+        publication_raw = _text(record.get("source_publication_date", ""))
+        publication_date = _date(publication_raw) if publication_raw else None
+        parsed_publications[index] = publication_date
+        if publication_raw and publication_date is None:
+            add(index, "error", "invalid_date", "'source_publication_date' must be a valid ISO date in YYYY-MM-DD format when supplied.", "source_publication_date")
 
         raw_value = _text(record.get("value", ""))
         if raw_value.strip():
@@ -186,6 +192,8 @@ def validate_observations(
 
     # Repeat source IDs may be reused only when their provenance metadata agrees.
     source_fields = ["source_publisher", "source_url", "retrieved_at"]
+    if "source_publication_date" in frame.columns:
+        source_fields.append("source_publication_date")
     for source_id, group in frame.groupby("source_id", dropna=False, sort=False):
         if any(group[field].map(_text).nunique() > 1 for field in source_fields):
             for index in group.index:
@@ -208,6 +216,8 @@ def validate_observations(
         normalized["period_start"] = parsed_dates[index][0].isoformat()
         normalized["period_end"] = parsed_dates[index][1].isoformat()
         normalized["retrieved_at"] = parsed_dates[index][2].isoformat()
+        publication_date = parsed_publications[index]
+        normalized["source_publication_date"] = publication_date.isoformat() if publication_date else None
         normalized["is_synthetic"] = parsed_synthetic[index]
         valid_records.append(normalized)
 

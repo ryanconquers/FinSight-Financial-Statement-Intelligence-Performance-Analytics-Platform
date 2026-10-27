@@ -20,6 +20,7 @@ Ratios are returned as decimal fractions (for example `0.15` means 15%) with uni
 
 - Revenue growth = current revenue / adjacent prior-year revenue − 1. Both values must be positive.
 - Revenue CAGR = (latest available revenue / earliest available revenue) ** (1 / elapsed FY years) − 1. Calculated once over the available series, on its latest financial year; endpoints must be positive and use matching basis, unit, and currency.
+- Gross profit = revenue − absolute cost of goods sold. Gross margin = gross profit / revenue. Both inputs must use the same period, basis, currency, and unit; revenue must be positive. The source-reported COGS sign is normalized with absolute value and retained in the metric's input evidence.
 - EBITDA margin = reported EBITDA / revenue. EBITDA is not reconstructed or adjusted by FinSight.
 - EBIT margin = EBIT / revenue.
 - Net profit margin = net income / revenue.

@@ -69,15 +69,44 @@ def company_exists(connection: sqlite3.Connection, company_id: str) -> bool:
     ).fetchone() is not None
 
 
-def company_provenance(connection: sqlite3.Connection, company_id: str) -> list[dict[str, object]]:
+def company_provenance(connection: sqlite3.Connection, company_id: str, statement_basis: str | None = None) -> list[dict[str, object]]:
     """List distinct sources and periods attached to a company's observations."""
     rows = connection.execute(
         """SELECT DISTINCT s.source_id, s.publisher, s.source_url, s.publication_date,
                   s.retrieved_at, f.financial_year, f.statement_basis, f.statement_type
            FROM sources s
            JOIN financial_observations f ON f.source_id = s.source_id
-           WHERE f.company_id = ? AND f.is_synthetic = 0 AND s.is_synthetic = 0
+           WHERE f.company_id = ? AND (? IS NULL OR f.statement_basis = ?)
+             AND f.is_synthetic = 0 AND s.is_synthetic = 0
            ORDER BY f.financial_year, f.statement_basis, f.statement_type, s.source_id""",
-        (company_id,),
+        (company_id, statement_basis, statement_basis),
     ).fetchall()
     return [dict(row) for row in rows]
+
+
+def list_company_observations(
+    connection: sqlite3.Connection,
+    company_id: str,
+    statement_basis: str,
+    financial_year: str | None = None,
+) -> list[dict[str, object]]:
+    """Return original reported labels/values with source references for inspection."""
+    rows = connection.execute(
+        """SELECT f.observation_id, f.company_id, f.financial_year, f.period_start, f.period_end,
+                  f.statement_basis, f.statement_type, f.line_item_id, f.reported_label,
+                  f.value, f.unit, f.currency, f.source_id, s.publisher, s.source_url,
+                  s.publication_date, s.retrieved_at
+           FROM financial_observations f JOIN sources s ON s.source_id = f.source_id
+           WHERE f.company_id = ? AND f.statement_basis = ?
+             AND (? IS NULL OR f.financial_year = ?)
+             AND f.is_synthetic = 0 AND s.is_synthetic = 0
+           ORDER BY f.financial_year DESC, f.statement_type, f.line_item_id, f.observation_id""",
+        (company_id, statement_basis, financial_year, financial_year),
+    ).fetchall()
+    return [
+        {
+            **dict(row),
+            "value": str(Decimal(str(row["value"]))) if row["value"] is not None else None,
+        }
+        for row in rows
+    ]

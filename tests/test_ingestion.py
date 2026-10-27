@@ -19,7 +19,7 @@ COLUMNS = [
     "company_id", "company_name", "ticker", "financial_year", "period_start",
     "period_end", "statement_basis", "statement_type", "line_item_id",
     "reported_label", "value", "unit", "currency", "source_id",
-    "source_publisher", "source_url", "retrieved_at", "is_synthetic",
+    "source_publisher", "source_url", "source_publication_date", "retrieved_at", "is_synthetic",
 ]
 
 
@@ -41,6 +41,7 @@ def row(**changes: str) -> dict[str, str]:
         "source_id": "TEST_SOURCE",
         "source_publisher": "Test Publisher",
         "source_url": "https://example.invalid/test-source",
+        "source_publication_date": "2025-05-01",
         "retrieved_at": "2026-10-27",
         "is_synthetic": "false",
     }
@@ -67,13 +68,25 @@ def test_successful_ingestion_registers_company_source_and_observation(tmp_path)
         report = import_records(database, records, report)
         assert database.execute("SELECT company_name FROM companies").fetchone()[0] == "Test Company"
         assert database.execute("SELECT publisher FROM sources").fetchone()[0] == "Test Publisher"
+        assert database.execute("SELECT publication_date FROM sources").fetchone()[0] == "2025-05-01"
         assert database.execute("SELECT value FROM financial_observations").fetchone()[0] == 125.75
         assert database.execute("SELECT status FROM processing_logs").fetchone()[0] == "succeeded"
     assert report.import_status == "imported"
     assert report.database_rows_written == 1
 
 
-def test_zero_is_imported_but_blank_value_is_invalid(tmp_path):
+def test_optional_publication_date_can_be_absent_without_losing_other_provenance(tmp_path):
+    columns = [column for column in COLUMNS if column != "source_publication_date"]
+    records, report = read_observations(write_csv(tmp_path / "no-publication-date.csv", [row()], columns))
+    assert report.errors == []
+    assert records[0]["source_publication_date"] is None
+    with connect_database(tmp_path / "no-publication-date.sqlite3") as database:
+        report = import_records(database, records, report)
+        assert report.import_status == "imported"
+        assert database.execute("SELECT publication_date FROM sources").fetchone()[0] is None
+
+
+def test_zero_is_distinct_from_missing_but_invalid_dataset_is_not_imported(tmp_path):
     path = write_csv(tmp_path / "zero-and-missing.csv", [row(value="0"), row(value="", line_item_id="cost")])
     records, report = read_observations(path)
     assert len(records) == 1
@@ -82,9 +95,10 @@ def test_zero_is_imported_but_blank_value_is_invalid(tmp_path):
     assert report.invalid_rows == 1
     with connect_database(tmp_path / "zero.sqlite3") as database:
         report = import_records(database, records, report)
-        stored = database.execute("SELECT value FROM financial_observations").fetchone()[0]
-        assert stored == 0
-    assert report.import_status == "partial_import_with_validation_errors"
+        assert database.execute("SELECT COUNT(*) FROM financial_observations").fetchone()[0] == 0
+        assert database.execute("SELECT COUNT(*) FROM companies").fetchone()[0] == 0
+    assert report.import_status == "not_imported_validation_errors"
+    assert report.database_rows_written == 0
 
 
 @pytest.mark.parametrize("missing_column", ["company_id", "value", "source_url"])
@@ -144,6 +158,9 @@ def test_source_provenance_is_required_and_validated(tmp_path):
     records, report = read_observations(write_csv(tmp_path / "provenance.csv", [row(source_url="relative/path")]))
     assert records == []
     assert "invalid_source_url" in codes(report)
+    records, report = read_observations(write_csv(tmp_path / "bad-publication-date.csv", [row(source_publication_date="2025/05/01")]))
+    assert records == []
+    assert "invalid_date" in codes(report)
     records, report = read_observations(write_csv(tmp_path / "missing-source.csv", [row(source_id="")]))
     assert records == []
     assert "required_value_missing" in codes(report)
@@ -245,14 +262,16 @@ def test_malformed_csv_is_rejected_without_exception(tmp_path):
     assert "malformed_csv" in codes(report)
 
 
-def test_mixed_valid_and_invalid_records_report_partial_import(tmp_path):
+def test_mixed_valid_and_invalid_records_are_rejected_as_one_dataset(tmp_path):
     path = write_csv(tmp_path / "mixed.csv", [row(value="4"), row(line_item_id="cost", value="bad")])
     records, report = read_observations(path)
     with connect_database(tmp_path / "mixed.sqlite3") as database:
         report = import_records(database, records, report)
-        assert database.execute("SELECT COUNT(*) FROM financial_observations").fetchone()[0] == 1
-    assert report.import_status == "partial_import_with_validation_errors"
-    assert report.database_rows_written == 1
+        assert database.execute("SELECT COUNT(*) FROM financial_observations").fetchone()[0] == 0
+        assert database.execute("SELECT COUNT(*) FROM companies").fetchone()[0] == 0
+        assert database.execute("SELECT COUNT(*) FROM sources").fetchone()[0] == 0
+    assert report.import_status == "not_imported_validation_errors"
+    assert report.database_rows_written == 0
     assert report.total_rows == 2 and report.invalid_rows == 1
 
 
@@ -319,3 +338,57 @@ def test_cli_validate_and_ingest_write_requested_reports(tmp_path):
     import_json = tmp_path / "import.json"
     assert main(["ingest", str(path), "--db", str(database), "--report-json", str(import_json)]) == 0
     assert json.loads(import_json.read_text())["import_status"] == "imported"
+
+
+def test_sqlite_schema_is_versioned_and_backup_is_consistent(tmp_path):
+    from finsight.db.connection import backup_database
+
+    original_path = tmp_path / "original.sqlite3"
+    backup_path = tmp_path / "backup" / "finsight.sqlite3"
+    with connect_database(original_path) as database:
+        database.execute("INSERT INTO companies (company_id, company_name, reporting_currency) VALUES ('TEST_CO', 'Test Company', 'INR')")
+        database.commit()
+        assert database.execute("PRAGMA user_version").fetchone()[0] == 1
+        backup_database(database, backup_path)
+    with connect_database(backup_path) as backup:
+        assert backup.execute("SELECT company_name FROM companies WHERE company_id = 'TEST_CO'").fetchone()[0] == "Test Company"
+        assert backup.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+        with pytest.raises(FileExistsError, match="will not be overwritten"):
+            backup_database(backup, backup_path)
+    restored_path = tmp_path / "restore.sqlite3"
+    assert main(["db-restore", "--backup", str(backup_path), "--db", str(restored_path)]) == 0
+    with connect_database(restored_path) as restored:
+        assert restored.execute("SELECT company_name FROM companies WHERE company_id = 'TEST_CO'").fetchone()[0] == "Test Company"
+    assert main(["db-restore", "--backup", str(backup_path), "--db", str(restored_path)]) == 1
+
+
+def test_future_sqlite_schema_version_fails_clearly(tmp_path):
+    path = tmp_path / "newer.sqlite3"
+    with sqlite3.connect(path) as database:
+        database.execute("PRAGMA user_version = 999")
+    with pytest.raises(RuntimeError, match="newer than supported"):
+        connect_database(path)
+
+
+def test_schema_bootstrap_failure_rolls_back_partial_ddl(tmp_path, monkeypatch):
+    import finsight.db.connection as database_module
+
+    bad_schema = tmp_path / "invalid-schema.sql"
+    bad_schema.write_text("CREATE TABLE should_rollback (id INTEGER); INVALID SQL;", encoding="utf-8")
+    monkeypatch.setattr(database_module, "SCHEMA_PATH", bad_schema)
+    path = tmp_path / "migration-rollback.sqlite3"
+    with pytest.raises(sqlite3.Error):
+        connect_database(path)
+    with sqlite3.connect(path) as database:
+        assert database.execute("PRAGMA user_version").fetchone()[0] == 0
+        assert database.execute("SELECT name FROM sqlite_master WHERE name = 'should_rollback'").fetchone() is None
+
+
+def test_production_storage_guard_rejects_ephemeral_path_and_accepts_volume(tmp_path, monkeypatch):
+    monkeypatch.setenv("FINSIGHT_REQUIRE_PERSISTENT_STORAGE", "1")
+    with pytest.raises(ValueError, match="durable mounted volume"):
+        connect_database("/tmp/finsight.sqlite3")
+    with pytest.raises(ValueError, match="absolute"):
+        connect_database("data/finsight.sqlite3")
+    with connect_database(tmp_path / "persistent-volume" / "finsight.sqlite3") as database:
+        assert database.execute("PRAGMA user_version").fetchone()[0] == 1

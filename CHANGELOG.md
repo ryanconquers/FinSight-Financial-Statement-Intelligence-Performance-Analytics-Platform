@@ -4,11 +4,11 @@ All notable project changes are documented here in reverse chronological order.
 
 ## [Unreleased]
 
-### M4A — Explainable financial trend and risk analysis
+### M4 — Historical analysis, insights, peer comparison, and reporting
 
-- **Features added:** Provisional, versioned TOML screening thresholds; pure rules derived from existing M3 metrics; explainable assessments with period, threshold, metric, observation, and source evidence; read-only company analysis endpoint; compact dashboard findings and evidence view.
-- **Tests:** Python suite — 108 passed; frontend API-client tests — 13 passed; ESLint, TypeScript, production build, and `git diff --check` passed.
-- **Limitations:** Thresholds are heuristic and uncalibrated. The current live M3 service has no company records; M4A has not been deployed or exercised end to end with company-level data. No financial disclosures or figures are independently verified.
+- **Features added:** M4A configurable risk rules remain integrated. Added gross profit/margin, deterministic trend/contrasting/coincident indicators, exact-period peer comparisons with compatibility exclusions and descriptive medians, raw reported-observation inspection, analyst JSON and metric CSV exports, SQLite schema versioning, strict all-or-nothing CSV imports, persistent-volume guard, and backup/verify/restore commands. No derived analytics are persisted.
+- **Tests:** Python suite — 133 passed; frontend API-client tests — 15 passed; ESLint, TypeScript, production build, and `git diff --check` passed on the final implementation.
+- **Limitations:** The M4 source changes have not been deployed or live-verified. The live API has no company records. Render still uses ephemeral SQLite storage; a durable disk, persistent path, and backup/recovery drill are operator prerequisites. Risk thresholds remain provisional. No financial disclosures or figures are independently verified.
 
 ### M3 — Financial metrics engine and web foundation — 2026-10-27
 

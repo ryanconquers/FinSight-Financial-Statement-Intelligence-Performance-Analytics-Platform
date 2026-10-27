@@ -7,6 +7,7 @@ from datetime import date
 from pathlib import Path
 
 import httpx
+import pytest
 
 from finsight.api.app import create_app
 from finsight.db.connection import connect_database
@@ -49,6 +50,12 @@ def test_health_is_healthy_without_creating_or_exposing_database(tmp_path):
     assert not db_path.exists()
 
 
+def test_app_fails_early_when_persistent_storage_is_required_but_ephemeral_path_is_configured(monkeypatch):
+    monkeypatch.setenv("FINSIGHT_REQUIRE_PERSISTENT_STORAGE", "1")
+    with pytest.raises(ValueError, match="durable mounted volume"):
+        create_app("/tmp/finsight.sqlite3")
+
+
 def test_empty_status_and_company_list_are_explicit(tmp_path):
     app = create_app(tmp_path / "empty.sqlite3")
     status = request(app, "GET", "/api/status")
@@ -79,6 +86,10 @@ def test_company_metrics_and_provenance_api_return_source_linked_results(tmp_pat
     provenance = request(app, "GET", "/api/companies/TEST_CO/provenance")
     assert provenance.status_code == 200
     assert provenance.json()["data"][0]["source_url"] == "https://example.invalid/source"
+    original = request(app, "GET", "/api/companies/TEST_CO/observations?statement_basis=consolidated&financial_year=FY2024")
+    assert original.status_code == 200
+    assert original.json()["data"][0]["reported_label"] == "revenue"
+    assert original.json()["data"][0]["value"] == "100"
     cors = request(app, "GET", "/api/health", headers={"Origin": "http://localhost:3000"})
     assert cors.headers["access-control-allow-origin"] == "http://localhost:3000"
 
@@ -110,6 +121,93 @@ def test_company_analysis_api_returns_not_found_and_validates_basis(tmp_path):
     assert missing.status_code == 404
     assert missing.json()["error"]["code"] == "not_found"
     assert invalid_basis.status_code == 422
+
+
+def test_insights_benchmark_and_report_endpoints_use_compatible_source_backed_data(tmp_path):
+    db_path = tmp_path / "m4.sqlite3"
+    with connect_database(db_path) as database:
+        for company_id, name, amounts in (
+            ("TARGET", "Target Test Co", (100, 120, 180)),
+            ("PEER_A", "Peer A Test Co", (100, 110, 121)),
+            ("PEER_B", "Peer B Test Co", (100, 130, 169)),
+        ):
+            database.execute("INSERT INTO companies (company_id, company_name, reporting_currency) VALUES (?, ?, 'INR')", (company_id, name))
+            source_id = f"TEST_SOURCE_{company_id}"
+            database.execute("INSERT INTO sources (source_id, publisher, source_url, retrieved_at) VALUES (?, 'Test Publisher', 'https://example.invalid/test', '2026-10-27')", (source_id,))
+            for number, amount in zip((2023, 2024, 2025), amounts):
+                database.execute(
+                    """INSERT INTO financial_observations (company_id, financial_year, period_start, period_end, statement_basis, statement_type, line_item_id, reported_label, value, unit, currency, source_id)
+                    VALUES (?, ?, ?, ?, 'consolidated', 'income_statement', 'revenue', 'test-reported revenue', ?, 'INR_crore', 'INR', ?)""",
+                    (company_id, f"FY{number}", f"{number-1}-04-01", f"{number}-03-31", amount, source_id),
+                )
+        database.commit()
+    app = create_app(db_path)
+
+    insights = request(app, "GET", "/api/companies/TARGET/insights?statement_basis=consolidated")
+    assert insights.status_code == 200
+    assert any("accelerated" in item["finding"] for item in insights.json()["data"]["insights"])
+    peer_insights = request(app, "GET", "/api/companies/TARGET/insights?statement_basis=consolidated&peer_ids=PEER_A&peer_ids=PEER_B")
+    assert peer_insights.status_code == 200
+    assert peer_insights.json()["data"]["peer_benchmark_status"] == "available"
+    assert any(item["category"] == "peer_comparison" for item in peer_insights.json()["data"]["insights"])
+
+    benchmark = request(app, "GET", "/api/companies/TARGET/benchmark?statement_basis=consolidated&peer_ids=PEER_A&peer_ids=PEER_B&financial_year=FY2025")
+    assert benchmark.status_code == 200
+    revenue = next(item for item in benchmark.json()["data"]["metrics"] if item["metric_id"] == "revenue_growth")
+    assert revenue["status"] == "available"
+    assert revenue["peer_median"] == "0.2"
+    assert revenue["peer_count"] == 2
+    assert revenue["values"][1]["evidence"]["inputs"][0]["source_id"] == "TEST_SOURCE_PEER_A"
+    assert {source["financial_year"] for source in revenue["values"][1]["sources"]} == {"FY2024", "FY2025"}
+    assert revenue["values"][1]["sources"][0]["source_url"] == "https://example.invalid/test"
+
+    report = request(app, "GET", "/api/companies/TARGET/report?statement_basis=consolidated&format=json")
+    assert report.status_code == 200
+    document = report.json()["data"]
+    assert document["company"]["company_name"] == "Target Test Co"
+    assert document["provenance"][0]["source_id"] == "TEST_SOURCE_TARGET"
+    assert document["reported_observations"][0]["reported_label"] == "test-reported revenue"
+    absent_basis = request(app, "GET", "/api/companies/TARGET/report?statement_basis=standalone&format=json")
+    assert absent_basis.status_code == 200
+    assert absent_basis.json()["data"]["report_status"] == "insufficient_data"
+    assert absent_basis.json()["data"]["reported_observations"] == []
+    assert document["metrics"] and document["insights"]
+    report_with_peers = request(app, "GET", "/api/companies/TARGET/report?statement_basis=consolidated&format=json&peer_ids=PEER_A&peer_ids=PEER_B")
+    assert report_with_peers.json()["data"]["peer_benchmark"]["status"] == "available"
+    csv_response = request(app, "GET", "/api/companies/TARGET/report?format=csv")
+    assert csv_response.status_code == 200
+    assert "text/csv" in csv_response.headers["content-type"]
+    assert "revenue_growth" in csv_response.text
+
+
+def test_peer_benchmark_and_report_handle_missing_company_and_peer_safely(tmp_path):
+    db_path = tmp_path / "m4-empty.sqlite3"
+    with connect_database(db_path) as database:
+        add_test_observation(database, year="FY2025", start="2024-04-01", end="2025-03-31", item="revenue", value="100")
+    app = create_app(db_path)
+    missing = request(app, "GET", "/api/companies/UNKNOWN/insights")
+    absent_peer = request(app, "GET", "/api/companies/TEST_CO/benchmark?peer_ids=UNKNOWN")
+    invalid_target_peer = request(app, "GET", "/api/companies/TEST_CO/benchmark?peer_ids=TEST_CO")
+    missing_report = request(app, "GET", "/api/companies/UNKNOWN/report")
+    assert missing.status_code == 404
+    assert absent_peer.status_code == 404
+    assert invalid_target_peer.status_code == 422
+    assert missing_report.status_code == 404
+
+
+def test_provenance_can_be_filtered_to_the_selected_statement_basis(tmp_path):
+    db_path = tmp_path / "basis-provenance.sqlite3"
+    with connect_database(db_path) as database:
+        add_test_observation(database, year="FY2025", start="2024-04-01", end="2025-03-31", item="revenue", value="100")
+        database.execute("INSERT INTO sources (source_id, publisher, source_url, retrieved_at) VALUES ('TEST_STANDALONE_SOURCE', 'Test Publisher', 'https://example.invalid/standalone', '2026-10-27')")
+        database.execute("""INSERT INTO financial_observations (company_id, financial_year, period_start, period_end, statement_basis, statement_type, line_item_id, reported_label, value, unit, currency, source_id)
+            VALUES ('TEST_CO', 'FY2025', '2024-04-01', '2025-03-31', 'standalone', 'income_statement', 'net_income', 'test net income', 5, 'INR_crore', 'INR', 'TEST_STANDALONE_SOURCE')""")
+        database.commit()
+    app = create_app(db_path)
+    standalone = request(app, "GET", "/api/companies/TEST_CO/provenance?statement_basis=standalone")
+    assert standalone.status_code == 200
+    assert len(standalone.json()["data"]) == 1
+    assert standalone.json()["data"][0]["statement_basis"] == "standalone"
 
 
 def test_request_errors_use_consistent_json_and_validate_periods(tmp_path):

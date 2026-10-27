@@ -111,6 +111,28 @@ select { appearance: none; background: var(--white); border: 1px solid #dce3de; 
 .risk-other article > strong { color: #526159; font-size: 9px; }
 .risk-status { background: #f2f3ef; border-radius: 4px; color: #78837c; float: right; font-size: 8px; padding: 3px 6px; text-transform: capitalize; }
 .risk-status-invalid_input { background: #f8ecea; color: #9a5b52; }
+.insight-list { display: grid; gap: 10px; }
+.insight-card, .benchmark-table-wrap, .report-actions { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; }
+.insight-meta, .benchmark-disclosure { color: #77867e; font-size: 9px; text-transform: capitalize; }
+.insight-card h3 { color: #34463e; font-size: 12px; line-height: 1.5; margin: 7px 0; }
+.insight-card p, .insight-card details, .report-actions p { color: #75827b; font-size: 9px; line-height: 1.6; margin: 7px 0 0; }
+.insight-card summary { color: #52635a; cursor: pointer; font-weight: 600; }
+.insight-card ul { padding-left: 18px; }
+.peer-controls { align-items: start; display: grid; gap: 7px; margin-bottom: 13px; max-width: 420px; }
+.peer-controls label { color: #52635a; font-size: 10px; font-weight: 600; }
+.peer-controls select { min-height: 72px; padding: 7px; }
+.peer-controls small { color: #7a8880; font-size: 9px; }
+.benchmark-disclosure { line-height: 1.6; }
+.benchmark-summary { display: grid; gap: 4px; margin: 10px 0; }
+.benchmark-summary p { color: #65736b; font-size: 9px; margin: 0; }
+.benchmark-summary strong { color: #35473f; text-transform: capitalize; }
+.benchmark-table-wrap { overflow-x: auto; }
+.benchmark-table { border-collapse: collapse; font-size: 9px; min-width: 680px; width: 100%; }
+.benchmark-table th, .benchmark-table td { border-bottom: 1px solid #edf0ed; padding: 8px; text-align: left; vertical-align: top; }
+.benchmark-table th { color: #607067; font-weight: 700; }
+.benchmark-table td { color: #748078; }
+.report-actions { display: flex; flex-wrap: wrap; gap: 9px; }
+.report-actions p { flex-basis: 100%; }
 .metrics-empty, .provenance-empty { align-items: center; background: #fbfcfa; border: 1px dashed #d5dfd8; border-radius: 8px; color: #66776d; display: flex; gap: 13px; padding: 18px; }
 .metric-empty-icon, .provenance-empty > span { align-items: center; background: #edf4ef; border-radius: 50%; color: #5a8a73; display: flex; flex: 0 0 34px; font-size: 18px; height: 34px; justify-content: center; }
 .metrics-empty strong, .provenance-empty strong { color: #52645a; display: block; font-size: 10px; margin-bottom: 4px; }

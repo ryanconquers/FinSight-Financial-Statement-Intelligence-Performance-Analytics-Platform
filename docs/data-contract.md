@@ -19,15 +19,16 @@ One row contains one source-reported line item for one company, financial year, 
 | `source_id` | Yes | Stable source registry identifier. |
 | `source_publisher` | Yes | Publisher or filing authority named by the source. |
 | `source_url` | Yes | Absolute HTTP/HTTPS URL to the underlying disclosure. |
+| `source_publication_date` | No | Filing/publication date when available, ISO `YYYY-MM-DD`. |
 | `retrieved_at` | Yes | Date the source file was retrieved, ISO `YYYY-MM-DD`. |
 | `is_synthetic` | Yes | Must be `false` or `0`. Synthetic records and source labels indicating synthetic data are rejected. |
 
-One accepted header layout, with the optional `ticker` column included, is:
+One accepted header layout, with optional `ticker` and `source_publication_date` columns included, is:
 
 ```csv
-company_id,company_name,ticker,financial_year,period_start,period_end,statement_basis,statement_type,line_item_id,reported_label,value,unit,currency,source_id,source_publisher,source_url,retrieved_at,is_synthetic
+company_id,company_name,ticker,financial_year,period_start,period_end,statement_basis,statement_type,line_item_id,reported_label,value,unit,currency,source_id,source_publisher,source_url,source_publication_date,retrieved_at,is_synthetic
 ```
 
-Leading/trailing whitespace in required fields is reported as an error rather than silently trimmed. Optional columns outside `ticker` are rejected to prevent accidental data loss. Extra information should be preserved in source notes and added to the contract deliberately.
+Leading/trailing whitespace in required fields is reported as an error rather than silently trimmed. Optional columns outside `ticker` and `source_publication_date` are rejected to prevent accidental data loss. Extra information should be preserved in source notes and added to the contract deliberately.
 
-The importer registers company and source metadata from these fields, enables SQLite foreign keys, and writes observations only after row validation. Rows with errors are omitted and explicitly counted in the report; other valid rows may be imported as one transaction with status `partial_import_with_validation_errors`. Database failures roll back every write from the file.
+The importer registers company and source metadata from these fields, enables SQLite foreign keys, and writes observations only after row validation. Any error rejects the entire dataset before company, source, or observation registration; warnings and manual-review findings are retained in the validation report and imported transaction log. Duplicate keys and conflicting source metadata are rejected. Database failures roll back every write from the file.

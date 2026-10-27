@@ -38,7 +38,17 @@ def _year_number(year: str) -> int | None:
 def _periods_advance(previous: MetricResult, current: MetricResult) -> bool:
     previous_year = _year_number(previous.financial_year)
     current_year = _year_number(current.financial_year)
-    return previous_year is not None and current_year == previous_year + 1 and previous.period_end + timedelta(days=1) == current.period_start
+    previous_days = (previous.period_end - previous.period_start).days + 1
+    current_days = (current.period_end - current.period_start).days + 1
+    return (
+        previous_year is not None
+        and current_year == previous_year + 1
+        and previous.period_end.year == previous_year
+        and current.period_end.year == current_year
+        and 350 <= previous_days <= 380
+        and 350 <= current_days <= 380
+        and previous.period_end + timedelta(days=1) == current.period_start
+    )
 
 
 def _metric_window(

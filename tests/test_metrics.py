@@ -81,6 +81,8 @@ def test_growth_profitability_cash_flow_and_leverage_formulas():
     expected = {
         "revenue_growth": Decimal("0.2"),
         "revenue_cagr": Decimal("0.2"),
+        "gross_profit": Decimal("72"),
+        "gross_margin": Decimal("0.6"),
         "ebitda_margin": Decimal("0.2"),
         "ebit_margin": Decimal("0.15"),
         "net_profit_margin": Decimal("0.1"),
@@ -124,6 +126,25 @@ def test_average_balance_returns_and_working_capital_days():
     assert ccc.status == "calculated"
     assert ccc.value == pytest.approx(expected["receivable_days"] + expected["inventory_days"] - expected["payable_days"])
     assert ccc.unit == "days"
+
+
+def test_gross_profit_and_margin_retain_reported_inputs_and_handle_missing_data():
+    values = [
+        observation("FY2025", "revenue", 100, "income_statement"),
+        observation("FY2025", "cost_of_goods_sold", -40, "income_statement"),
+    ]
+    metrics = result_map(values)
+    gross_profit = metrics[("FY2025", "gross_profit")]
+    gross_margin = metrics[("FY2025", "gross_margin")]
+    assert gross_profit.status == gross_margin.status == "calculated"
+    assert gross_profit.value == Decimal("60")
+    assert gross_profit.unit == "INR_crore"
+    assert gross_margin.value == Decimal("0.6")
+    assert [item.value for item in gross_profit.input_observations] == [Decimal("100"), Decimal("-40")]
+
+    missing = result_map([observation("FY2025", "revenue", 100, "income_statement")])
+    assert missing[("FY2025", "gross_profit")].status == "unavailable"
+    assert missing[("FY2025", "gross_margin")].status == "unavailable"
 
 
 def test_missing_opening_balance_is_unavailable_not_zero():
