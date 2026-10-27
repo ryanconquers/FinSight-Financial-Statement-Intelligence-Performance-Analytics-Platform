@@ -224,3 +224,11 @@ __marimo__/
 *.sqlite
 *.sqlite3
 .DS_Store
+
+# Next.js frontend
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+web/.env.local
+web/.env.*.local

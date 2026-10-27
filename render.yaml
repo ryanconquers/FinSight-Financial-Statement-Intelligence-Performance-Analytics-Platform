@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: finsight-api
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn finsight.api.app:app --app-dir src --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    envVars:
+      - key: FINSIGHT_DATABASE_PATH
+        value: /tmp/finsight.sqlite3
+      - key: FINSIGHT_CORS_ORIGINS
+        sync: false

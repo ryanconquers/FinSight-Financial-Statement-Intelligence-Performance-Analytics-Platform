@@ -4,6 +4,14 @@ All notable project changes are documented here in reverse chronological order.
 
 ## [Unreleased]
 
+### M3 — Financial metrics engine and web foundation — 2026-10-27
+
+- **Features added:** Pure Decimal metric engine for growth, profitability, returns, cash flow, working capital, and leverage; SQLite observation adapter; FastAPI health/status, company, metrics, and provenance endpoints; environment-based database/CORS settings; Next.js dashboard with honest empty/loading/error states; Render/Vercel deployment instructions and Render API blueprint.
+- **Files changed:** `.gitignore`, `.env.example`, `README.md`, `CHANGELOG.md`, `requirements.txt`, `render.yaml`, `docs/data-contract.md`, `docs/financial-metrics.md`, `docs/deployment.md`, `src/finsight/metrics/`, `src/finsight/api/`, `web/`, `tests/test_metrics.py`, and `tests/test_api.py`.
+- **Tests executed:** `python -m pytest -q` — 57 passed; `npm run typecheck` — passed; `npm run build` — passed (Next.js 16.4.3); live local API `/api/health`, `/api/status`, and `/api/companies` — 200 responses; built frontend `/` — HTTP response and development UI served.
+- **Known issues:** No real company data has been onboarded; metrics and company selection therefore show empty states. Hosting accounts are not connected and the app is not live. Render's included free service uses ephemeral SQLite storage and may spin down; real data requires persistent storage. SQLite `NUMERIC` affinity may round source amounts before Decimal calculations read them.
+- **Design decisions:** Keep the existing SQLite schema unchanged; calculate through pure Decimal functions and return input provenance rather than persisting M3 metric rows. Use Vercel for Next.js and Render for FastAPI; defer persistent storage until data onboarding to avoid provisioning paid infrastructure for an empty dataset. Revenue CAGR spans the earliest and latest available revenue years.
+
 ### M2 — CSV ingestion and data validation — 2026-10-27
 
 - **Features added:** Pandas CSV parser; contract validation for required fields, dates, numeric finiteness, statement metadata, provenance, duplicate keys, unit/currency consistency, and synthetic-data prohibition; structured JSON/CSV reports; CLI validate/ingest commands; transactional SQLite registration/import and rollback handling.

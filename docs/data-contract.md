@@ -7,7 +7,7 @@ One row contains one source-reported line item for one company, financial year, 
 | `company_id` | Yes | Stable internal company identifier. |
 | `company_name` | Yes | Company name as shown in the source/master data. |
 | `ticker` | No | Exchange ticker when available. |
-| `financial_year` | Yes | Fiscal-year label in `FYYYYY` form, such as `FY2025`. Its year must match `period_end`. |
+| `financial_year` | Yes | Fiscal-year label such as `FY2025`. Its year must match `period_end`. |
 | `period_start`, `period_end` | Yes | Inclusive reporting-period dates, ISO `YYYY-MM-DD`. Annual periods outside 350–380 days need manual review. |
 | `statement_basis` | Yes | Exactly `standalone` or `consolidated`; never mix silently. |
 | `statement_type` | Yes | `income_statement`, `balance_sheet`, or `cash_flow_statement`. |
