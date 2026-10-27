@@ -2,7 +2,7 @@
 
 FinSight is an early-stage financial analytics application for importing source-backed company statements, calculating documented performance metrics, and displaying their inputs and provenance. No real company disclosures have been onboarded; the interface says so and shows no fabricated financial results.
 
-> **Current status:** M1–M2 data foundations and M3 metric/web foundation are implemented. The dashboard is live on [GitHub Pages](https://ryanconquers.github.io/FinSight-Financial-Statement-Intelligence-Performance-Analytics-Platform/) and connects to the FastAPI backend on Render. The live frontend integration has been tested for status and company-list requests. The API currently has no company records, so company-level metrics and provenance have not been verified end to end and no financial results are shown.
+> **Current status:** M1–M2 foundations and M3 metrics/web integration are deployed. M4A explainable trend/risk engine and dashboard integration are implemented in the current branch but are not yet deployed. The live M3 API has no company records, so no company-level metrics, provenance, or M4A assessments have been verified end to end and no financial results are shown.
 
 ## Objectives and use cases
 
@@ -47,9 +47,11 @@ render.yaml             Render API service definition
 .env.example            Local backend environment example
 ```
 
-## Implemented metrics
+## Implemented metrics and analysis
 
 M3 implements revenue growth and CAGR; EBITDA, EBIT, and net-profit margins; ROA, ROE, and ROCE; operating cash flow, free cash flow, OCF/net-income, OCF/net-income divergence, and OCF year-over-year absolute change; receivable, inventory, and payable days and cash conversion cycle; total debt, net debt, debt-to-equity, interest coverage, and net debt/EBITDA. The full formulas, standardized input IDs, denominator rules, average-balance convention, and missing-input handling are in [`docs/financial-metrics.md`](docs/financial-metrics.md).
+
+M4A derives explainable trend and screening assessments from those M3 results; it does not calculate duplicate financial formulas or persist flags. Provisional configurable thresholds and status semantics are documented in [`docs/financial-risk-analysis.md`](docs/financial-risk-analysis.md) and configured in [`config/financial_risk_thresholds.toml`](config/financial_risk_thresholds.toml). A triggered rule is an analytical prompt for review, not proof of fraud, insolvency, or distress and not an investment recommendation. The thresholds are not empirically calibrated.
 
 Missing inputs produce `unavailable`, invalid denominators or incompatible basis/period/currency/unit produce `invalid_input`, and valid calculations produce `calculated`. Decimal arithmetic is used; ratios are serialized as decimal strings. Values are never zero-filled, converted between currencies, or silently rescaled. No calculation is written to the database in M3.
 
@@ -70,6 +72,7 @@ Implemented read endpoints:
 - `GET /api/status` — development status and count of source-backed observations.
 - `GET /api/companies` — registered companies with source-backed observations; empty list when none exist.
 - `GET /api/companies/{company_id}/metrics?statement_basis=consolidated&financial_year=FY2025` — structured metrics for a company/basis, optionally one year.
+- `GET /api/companies/{company_id}/analysis?statement_basis=consolidated` — M4A assessments derived from existing metrics, with thresholds, explanations, and observation/source evidence.
 - `GET /api/companies/{company_id}/provenance` — source publisher, URL, retrieval date, basis, and period.
 
 Responses use a `data`/`meta` envelope; request errors use a consistent `error` envelope. CORS origins are set with `FINSIGHT_CORS_ORIGINS`. Database location is set with `FINSIGHT_DATABASE_PATH`; its default is a repository-relative path.
@@ -96,7 +99,7 @@ python -m pytest -q
 cd web && npm test && npm run lint && npm run typecheck && npm run build
 ```
 
-Python tests cover formulas, missing/zero/negative inputs, period and unit/currency incompatibility, API responses, empty-data behavior, and provenance. Frontend checks include API-client tests (`npm test`), ESLint, TypeScript, and a production build. No browser automation suite is committed.
+Python tests cover formulas, missing/zero/negative inputs, period and unit/currency incompatibility, M4A rule boundaries and evidence, API responses, empty-data behavior, and provenance. Frontend checks include API-client tests (`npm test`), ESLint, TypeScript, and a production build. No browser automation suite is committed.
 
 ## Deployment path and constraints
 

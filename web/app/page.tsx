@@ -45,6 +45,27 @@ type Provenance = {
   statement_basis: string;
   statement_type: string;
 };
+type RiskAssessment = {
+  rule_id: string;
+  title: string;
+  status: "flagged" | "not_flagged" | "insufficient_data" | "invalid_input";
+  financial_year: string;
+  configuration_version: string;
+  thresholds: Record<string, string | number>;
+  periods: string[];
+  comparison: string;
+  fact: string;
+  interpretation: string;
+  reason: string | null;
+  observed: Array<{ metric_id: string; financial_year: string; value: string | null; unit: string; currency: string | null; status: string }>;
+  evidence: Metric[];
+};
+type CompanyAnalysis = {
+  company_id: string;
+  statement_basis: "standalone" | "consolidated";
+  configuration_version: string;
+  assessments: RiskAssessment[];
+};
 
 type LoadState = "loading" | "ready" | "error";
 const API_BASE = (process.env.NEXT_PUBLIC_FINSIGHT_API_URL || "http://localhost:8000").replace(/\/$/, "");
@@ -81,6 +102,7 @@ export default function Home() {
   const [basis, setBasis] = useState<"consolidated" | "standalone">("consolidated");
   const [metrics, setMetrics] = useState<Metric[]>([]);
   const [provenance, setProvenance] = useState<Provenance[]>([]);
+  const [riskAssessments, setRiskAssessments] = useState<RiskAssessment[]>([]);
   const [detailState, setDetailState] = useState<LoadState>("ready");
   const [detailError, setDetailError] = useState("");
   const [detailAttempt, setDetailAttempt] = useState(0);
@@ -110,6 +132,7 @@ export default function Home() {
       if (nextCompanies.length === 0) {
         setMetrics([]);
         setProvenance([]);
+        setRiskAssessments([]);
       }
       setCompanyId((current) => nextCompanies.some((company) => company.company_id === current) ? current : nextCompanies[0]?.company_id || "");
       setLoadState("ready");
@@ -133,10 +156,12 @@ export default function Home() {
     Promise.all([
       requestData<Metric[]>(API_BASE, `/api/companies/${encodeURIComponent(companyId)}/metrics?statement_basis=${basis}`),
       requestData<Provenance[]>(API_BASE, `/api/companies/${encodeURIComponent(companyId)}/provenance`),
-    ]).then(([nextMetrics, nextProvenance]) => {
+      requestData<CompanyAnalysis>(API_BASE, `/api/companies/${encodeURIComponent(companyId)}/analysis?statement_basis=${basis}`),
+    ]).then(([nextMetrics, nextProvenance, analysis]) => {
       if (!active) return;
       setMetrics(nextMetrics);
       setProvenance(nextProvenance);
+      setRiskAssessments(analysis.assessments);
       setDetailState("ready");
     }).catch((error: unknown) => {
       if (!active) return;
@@ -165,6 +190,7 @@ export default function Home() {
           <a className="nav-link active" href="#overview"><span className="nav-icon">◫</span>Overview</a>
           <a className="nav-link" href="#company"><span className="nav-icon">▤</span>Company analysis</a>
           <a className="nav-link" href="#metrics"><span className="nav-icon">⌁</span>Financial metrics</a>
+          <a className="nav-link" href="#analysis"><span className="nav-icon">◇</span>Trend flags</a>
           <a className="nav-link" href="#provenance"><span className="nav-icon">↗</span>Data provenance</a>
         </nav>
         <div className="sidebar-bottom">
@@ -267,6 +293,36 @@ export default function Home() {
               </div></div>;
             })}
           </div>}
+        </section>
+
+        <section className="content-section" id="analysis">
+          <div className="section-heading"><div><p className="eyebrow">CONFIGURED ANALYTICAL SCREENS</p><h2>Trend and risk signals</h2><p className="section-subtitle">Rule-based prompts for review; these findings are not proof of misconduct, insolvency, or an investment recommendation.</p></div></div>
+          {loadState === "ready" && companies.length === 0 && <div className="metrics-empty"><span className="metric-empty-icon">◇</span><div><strong>Analysis awaits company records.</strong><p>No financial records are onboarded, so company-level trends and flags cannot yet be assessed.</p></div></div>}
+          {selectedCompany && detailState === "loading" && <div className="empty-inline"><span className="spinner" />Evaluating configured rules…</div>}
+          {selectedCompany && detailState === "error" && <div className="metrics-empty"><span className="metric-empty-icon">◇</span><div><strong>Analysis is unavailable.</strong><p>{detailError}</p></div></div>}
+          {selectedCompany && detailState === "ready" && (() => {
+            const flagged = riskAssessments.filter((item) => item.status === "flagged");
+            const other = riskAssessments.filter((item) => item.status !== "flagged");
+            const insufficientCount = riskAssessments.filter((item) => item.status === "insufficient_data").length;
+            return <div className="risk-analysis">
+              <p className="risk-config">Threshold set {riskAssessments[0]?.configuration_version ?? "unavailable"} · {basis} basis · {selectedCompany.company_name}</p>
+              {flagged.length === 0 && <div className="metrics-empty"><span className="metric-empty-icon">✓</span><div><strong>No configured flags for the available assessment window.</strong><p>{insufficientCount} of {riskAssessments.length} rules need more compatible history or inputs. A clear screen does not establish the absence of financial risk.</p></div></div>}
+              {flagged.map((item) => <article className="risk-card risk-card-flagged" key={item.rule_id}>
+                <div className="risk-card-heading"><strong>{item.title}</strong><span>Flagged · {item.financial_year}</span></div>
+                <p>{item.fact}</p><p className="risk-interpretation">{item.interpretation}</p>
+                <details><summary>Threshold and evidence</summary><p>{item.comparison} · periods: {item.periods.join(", ")}</p>
+                  <ul>{item.evidence.map((evidence) => <li key={`${item.rule_id}-${evidence.metric_id}-${evidence.financial_year}`}>
+                    {evidence.financial_year}: {evidence.value ?? "unavailable"} {evidence.unit} {evidence.currency ?? ""} · sources {evidence.inputs.map((input) => `${input.source_id} (#${input.observation_id})`).join(", ") || "not available"}
+                  </li>)}</ul>
+                </details>
+              </article>)}
+              {other.length > 0 && <details className="risk-other"><summary>Other checks ({other.length})</summary>{other.map((item) => <article key={item.rule_id}>
+                <strong>{item.title}</strong><span className={`risk-status risk-status-${item.status}`}>{item.status.replaceAll("_", " ")}</span>
+                <p>{item.fact}</p>{item.reason && item.status !== "not_flagged" && <p>{item.reason}</p>}
+                <p>{item.interpretation}</p>
+              </article>)}</details>}
+            </div>;
+          })()}
         </section>
 
         <section className="content-section provenance-section" id="provenance">

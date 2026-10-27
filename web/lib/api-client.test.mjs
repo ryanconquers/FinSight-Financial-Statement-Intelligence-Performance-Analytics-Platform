@@ -176,3 +176,39 @@ test("requestData accepts valid empty collections and nullable provenance URLs",
   assert.deepEqual(emptyCompanies, []);
   assert.equal(provenance[0].source_url, null);
 });
+
+test("requestData validates the company-analysis response and its evidence", async () => {
+  const data = {
+    company_id: "TEST_CO",
+    statement_basis: "consolidated",
+    configuration_version: "m4a-risk-v1",
+    assessments: [{
+      rule_id: "revenue_decline", title: "Revenue decline", status: "flagged",
+      company_id: "TEST_CO", statement_basis: "consolidated", financial_year: "FY2025",
+      configuration_version: "m4a-risk-v1", thresholds: { growth_below: "0", consecutive_years: 2 },
+      periods: ["FY2024", "FY2025"], comparison: "growth below zero",
+      fact: "Revenue declined in both periods.", interpretation: "Analytical signal for review.",
+      reason: "Configured threshold met.",
+      observed: [{ metric_id: "revenue_growth", financial_year: "FY2025", value: "-0.1", unit: "ratio", currency: null, status: "calculated" }],
+      evidence: [{
+        metric_id: "revenue_growth", metric_name: "Revenue growth", company_id: "TEST_CO",
+        financial_year: "FY2025", period_start: "2024-04-01", period_end: "2025-03-31",
+        statement_basis: "consolidated", value: "-0.1", unit: "ratio", currency: null,
+        status: "calculated", explanation: "Calculated", formula: "growth", formula_version: "v1",
+        inputs: [{ observation_id: 2, line_item_id: "revenue", statement_type: "income_statement", value: "90", unit: "INR_crore", currency: "INR", source_id: "TEST_SOURCE", financial_year: "FY2025", period_start: "2024-04-01", period_end: "2025-03-31" }],
+        warnings: [],
+      }],
+    }],
+  };
+  const result = await requestData("https://api.example.test", "/api/companies/TEST_CO/analysis?statement_basis=consolidated", {
+    fetchImpl: async () => jsonResponse({ data, meta: { count: 1 } }),
+  });
+  assert.equal(result.assessments[0].evidence[0].inputs[0].source_id, "TEST_SOURCE");
+
+  await assert.rejects(
+    requestData("https://api.example.test", "/api/companies/TEST_CO/analysis", {
+      fetchImpl: async () => jsonResponse({ data: { ...data, assessments: [{ ...data.assessments[0], status: "distressed" }] }, meta: {} }),
+    }),
+    /data\[0\] has an unexpected shape/,
+  );
+});

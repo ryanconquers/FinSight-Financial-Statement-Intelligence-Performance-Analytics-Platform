@@ -12,6 +12,8 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from finsight.analytics.config import load_risk_thresholds
+from finsight.analytics.risk import analyze_financial_risk
 from finsight.db.connection import connect_database
 from finsight.metrics.calculator import calculate_company_metrics
 from finsight.metrics.repository import company_exists, company_provenance, list_companies, load_company_observations
@@ -25,6 +27,7 @@ def _configured_origins() -> list[str]:
 def create_app(
     database_path: str | Path | None = None,
     cors_origins: list[str] | None = None,
+    risk_thresholds_path: str | Path | None = None,
 ) -> FastAPI:
     """Build an app with environment-based runtime settings and injectable test settings."""
     app = FastAPI(
@@ -33,6 +36,8 @@ def create_app(
         description="Read-only financial observation and metric endpoints. No real filings are onboarded yet.",
     )
     app.state.database_path = str(database_path or os.getenv("FINSIGHT_DATABASE_PATH", "data/finsight.sqlite3"))
+    default_risk_config = Path(__file__).resolve().parents[3] / "config" / "financial_risk_thresholds.toml"
+    app.state.risk_thresholds = load_risk_thresholds(risk_thresholds_path or default_risk_config)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=cors_origins if cors_origins is not None else _configured_origins(),
@@ -116,6 +121,28 @@ def create_app(
                 "financial_year": financial_year,
                 "count": len(results),
             },
+        }
+
+    @app.get("/api/companies/{company_id}/analysis", tags=["analytics"])
+    def company_analysis(
+        company_id: Annotated[str, PathParameter(min_length=1, max_length=128)],
+        statement_basis: Annotated[Literal["standalone", "consolidated"], Query()] = "consolidated",
+        connection: sqlite3.Connection = Depends(get_connection),
+    ) -> dict[str, object]:
+        """Return rule assessments derived from the existing M3 metric results."""
+        if not company_exists(connection, company_id):
+            raise HTTPException(status_code=404, detail="Company has no source-backed financial observations.")
+        observations = load_company_observations(connection, company_id, statement_basis)
+        metrics = calculate_company_metrics(observations)
+        assessments = analyze_financial_risk(metrics, app.state.risk_thresholds)
+        return {
+            "data": {
+                "company_id": company_id,
+                "statement_basis": statement_basis,
+                "configuration_version": app.state.risk_thresholds.version,
+                "assessments": [assessment.to_dict() for assessment in assessments],
+            },
+            "meta": {"company_id": company_id, "statement_basis": statement_basis, "count": len(assessments)},
         }
 
     @app.get("/api/companies/{company_id}/provenance", tags=["companies"])

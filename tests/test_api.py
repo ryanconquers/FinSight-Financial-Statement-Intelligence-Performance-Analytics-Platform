@@ -83,6 +83,35 @@ def test_company_metrics_and_provenance_api_return_source_linked_results(tmp_pat
     assert cors.headers["access-control-allow-origin"] == "http://localhost:3000"
 
 
+def test_company_analysis_api_returns_versioned_assessments_and_evidence(tmp_path):
+    db_path = tmp_path / "analysis.sqlite3"
+    with connect_database(db_path) as database:
+        add_test_observation(database, year="FY2023", start="2022-04-01", end="2023-03-31", item="revenue", value="120")
+        add_test_observation(database, year="FY2024", start="2023-04-01", end="2024-03-31", item="revenue", value="100")
+        add_test_observation(database, year="FY2025", start="2024-04-01", end="2025-03-31", item="revenue", value="90")
+    app = create_app(db_path)
+    response = request(app, "GET", "/api/companies/TEST_CO/analysis?statement_basis=consolidated")
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["company_id"] == "TEST_CO"
+    assert payload["configuration_version"] == "m4a-risk-v1"
+    revenue = next(item for item in payload["assessments"] if item["rule_id"] == "revenue_decline")
+    assert revenue["status"] == "flagged"
+    assert revenue["periods"] == ["FY2024", "FY2025"]
+    assert revenue["thresholds"]["growth_below"] == "0"
+    assert revenue["evidence"]
+    assert revenue["evidence"][-1]["inputs"][0]["source_id"] == "TEST_SOURCE"
+
+
+def test_company_analysis_api_returns_not_found_and_validates_basis(tmp_path):
+    app = create_app(tmp_path / "analysis-empty.sqlite3")
+    missing = request(app, "GET", "/api/companies/UNKNOWN/analysis")
+    invalid_basis = request(app, "GET", "/api/companies/UNKNOWN/analysis?statement_basis=mixed")
+    assert missing.status_code == 404
+    assert missing.json()["error"]["code"] == "not_found"
+    assert invalid_basis.status_code == 422
+
+
 def test_request_errors_use_consistent_json_and_validate_periods(tmp_path):
     app = create_app(tmp_path / "requests.sqlite3")
     missing = request(app, "GET", "/api/companies/UNKNOWN/metrics")

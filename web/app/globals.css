@@ -96,6 +96,21 @@ select { appearance: none; background: var(--white); border: 1px solid #dce3de; 
 .metric-card summary { cursor: pointer; font-weight: 600; }
 .metric-card details p { line-height: 1.5; margin: 7px 0 0; }
 .formula-text { color: #50635a; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.risk-analysis { display: grid; gap: 10px; }
+.risk-config { color: #7d8983; font-size: 9px; margin: 0; }
+.risk-card { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 13px 15px; }
+.risk-card-flagged { background: #fffdf8; border-color: #e6d8b8; }
+.risk-card-heading { align-items: center; color: #46574e; display: flex; font-size: 10px; justify-content: space-between; gap: 10px; }
+.risk-card-heading span { color: #8a7041; font-size: 8px; text-transform: uppercase; }
+.risk-card > p, .risk-other article p { color: #737f78; font-size: 9px; line-height: 1.5; margin: 7px 0 0; }
+.risk-card .risk-interpretation { color: #8a7041; }
+.risk-card details, .risk-other { border-top: 1px solid #edf0ed; color: #65736b; font-size: 9px; margin-top: 9px; padding-top: 8px; }
+.risk-card summary, .risk-other summary { cursor: pointer; font-weight: 600; }
+.risk-card details ul { color: #78847d; line-height: 1.6; margin: 7px 0 0; padding-left: 18px; }
+.risk-other article { border-top: 1px solid #edf0ed; margin-top: 8px; padding-top: 8px; }
+.risk-other article > strong { color: #526159; font-size: 9px; }
+.risk-status { background: #f2f3ef; border-radius: 4px; color: #78837c; float: right; font-size: 8px; padding: 3px 6px; text-transform: capitalize; }
+.risk-status-invalid_input { background: #f8ecea; color: #9a5b52; }
 .metrics-empty, .provenance-empty { align-items: center; background: #fbfcfa; border: 1px dashed #d5dfd8; border-radius: 8px; color: #66776d; display: flex; gap: 13px; padding: 18px; }
 .metric-empty-icon, .provenance-empty > span { align-items: center; background: #edf4ef; border-radius: 50%; color: #5a8a73; display: flex; flex: 0 0 34px; font-size: 18px; height: 34px; justify-content: center; }
 .metrics-empty strong, .provenance-empty strong { color: #52645a; display: block; font-size: 10px; margin-bottom: 4px; }

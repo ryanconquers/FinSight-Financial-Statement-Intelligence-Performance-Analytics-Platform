@@ -18,6 +18,56 @@ function validateArray(data, path, validateItem) {
   }
 }
 
+function isMetric(item) {
+  return isRecord(item)
+    && isString(item.metric_id)
+    && isString(item.metric_name)
+    && isString(item.company_id)
+    && isString(item.financial_year)
+    && isString(item.period_start)
+    && isString(item.period_end)
+    && isString(item.statement_basis)
+    && isNullableString(item.value)
+    && isString(item.unit)
+    && isNullableString(item.currency)
+    && ["calculated", "unavailable", "invalid_input"].includes(item.status)
+    && isString(item.explanation)
+    && isString(item.formula)
+    && Array.isArray(item.inputs)
+    && item.inputs.every((input) => isRecord(input) && isString(input.source_id) && Number.isInteger(input.observation_id))
+    && Array.isArray(item.warnings)
+    && item.warnings.every(isString);
+}
+
+function isAssessment(item) {
+  return isRecord(item)
+    && isString(item.rule_id)
+    && isString(item.title)
+    && ["flagged", "not_flagged", "insufficient_data", "invalid_input"].includes(item.status)
+    && isString(item.company_id)
+    && ["standalone", "consolidated"].includes(item.statement_basis)
+    && isString(item.financial_year)
+    && isString(item.configuration_version)
+    && isRecord(item.thresholds)
+    && Object.values(item.thresholds).every((value) => isString(value) || Number.isInteger(value))
+    && Array.isArray(item.periods)
+    && item.periods.every(isString)
+    && isString(item.comparison)
+    && isString(item.fact)
+    && isString(item.interpretation)
+    && isNullableString(item.reason)
+    && Array.isArray(item.observed)
+    && item.observed.every((value) => isRecord(value)
+      && isString(value.metric_id)
+      && isString(value.financial_year)
+      && isNullableString(value.value)
+      && isString(value.unit)
+      && isNullableString(value.currency)
+      && ["calculated", "unavailable", "invalid_input"].includes(value.status))
+    && Array.isArray(item.evidence)
+    && item.evidence.every(isMetric);
+}
+
 function validateData(path, data) {
   const endpoint = path.split("?", 1)[0];
   if (endpoint === "/api/status") {
@@ -46,24 +96,17 @@ function validateData(path, data) {
     return;
   }
   if (/^\/api\/companies\/[^/]+\/metrics$/.test(endpoint)) {
-    validateArray(data, path, (item) => isRecord(item)
-      && isString(item.metric_id)
-      && isString(item.metric_name)
-      && isString(item.company_id)
-      && isString(item.financial_year)
-      && isString(item.period_start)
-      && isString(item.period_end)
-      && isString(item.statement_basis)
-      && isNullableString(item.value)
-      && isString(item.unit)
-      && isNullableString(item.currency)
-      && ["calculated", "unavailable", "invalid_input"].includes(item.status)
-      && isString(item.explanation)
-      && isString(item.formula)
-      && Array.isArray(item.inputs)
-      && item.inputs.every((input) => isRecord(input) && isString(input.source_id) && Number.isInteger(input.observation_id))
-      && Array.isArray(item.warnings)
-      && item.warnings.every(isString));
+    validateArray(data, path, isMetric);
+    return;
+  }
+  if (/^\/api\/companies\/[^/]+\/analysis$/.test(endpoint)) {
+    if (!isRecord(data)
+      || !isString(data.company_id)
+      || !["standalone", "consolidated"].includes(data.statement_basis)
+      || !isString(data.configuration_version)) {
+      throw invalidResponse(path, "data must contain company, statement basis, and configuration version fields.");
+    }
+    validateArray(data.assessments, path, isAssessment);
     return;
   }
   if (/^\/api\/companies\/[^/]+\/provenance$/.test(endpoint)) {

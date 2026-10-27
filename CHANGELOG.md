@@ -4,6 +4,12 @@ All notable project changes are documented here in reverse chronological order.
 
 ## [Unreleased]
 
+### M4A — Explainable financial trend and risk analysis
+
+- **Features added:** Provisional, versioned TOML screening thresholds; pure rules derived from existing M3 metrics; explainable assessments with period, threshold, metric, observation, and source evidence; read-only company analysis endpoint; compact dashboard findings and evidence view.
+- **Tests:** Python suite — 108 passed; frontend API-client tests — 13 passed; ESLint, TypeScript, production build, and `git diff --check` passed.
+- **Limitations:** Thresholds are heuristic and uncalibrated. The current live M3 service has no company records; M4A has not been deployed or exercised end to end with company-level data. No financial disclosures or figures are independently verified.
+
 ### M3 — Financial metrics engine and web foundation — 2026-10-27
 
 - **Features added:** Pure Decimal metric engine for growth, profitability, returns, cash flow, working capital, and leverage; SQLite observation adapter; FastAPI health/status, company, metrics, and provenance endpoints; environment-based database/CORS settings; Next.js dashboard with honest empty/loading/error states; GitHub Pages static frontend workflow and Render API blueprint.

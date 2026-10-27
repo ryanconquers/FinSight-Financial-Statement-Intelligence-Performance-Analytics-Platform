@@ -1,0 +1,18 @@
+[meta]
+version = "m4a-risk-v1"
+
+[thresholds]
+revenue_growth_below = "0"
+revenue_decline_consecutive_years = 2
+margin_decline_lookback_years = 2
+margin_decline_ratio = "0.05"
+ocf_to_net_income_below = "0.8"
+ocf_conversion_consecutive_years = 2
+net_debt_to_ebitda_above = "3.0"
+debt_to_equity_above = "2.0"
+interest_coverage_below = "1.5"
+receivable_days_increase_at_least = "15"
+inventory_days_increase_at_least = "15"
+working_capital_increase_consecutive_years = 2
+negative_fcf_below = "0"
+negative_fcf_consecutive_years = 2

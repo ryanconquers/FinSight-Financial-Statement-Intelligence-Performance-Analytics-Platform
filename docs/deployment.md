@@ -38,6 +38,8 @@ The FastAPI backend is deployed at `https://finsight-api-2zh2.onrender.com`. The
 
 The client retries network errors and transient HTTP 502/503/504 responses, allowing the Render free instance time to wake after inactivity. Failed requests end in the existing retryable error state. Dashboard metrics and provenance load only when the API returns a company; the live database currently returns an empty company list.
 
+The M4A analysis endpoint and dashboard integration are implemented in the current source branch but are not yet deployed. After deployment, `/api/companies/{company_id}/analysis` will derive rule assessments from the existing metric engine. The current live M3 deployment has no company records, so company-level analysis and provenance remain unverified end to end.
+
 Render web services have an ephemeral filesystem by default. The included free service stores its empty SQLite file under `/tmp`; it can be recreated after a restart or deploy. This is acceptable only while there is no onboarded financial dataset. Render persistent disks are available to paid services and preserve files only beneath their mount path. Before onboarding real data, either upgrade and mount a persistent disk (for example `/var/data`, with `FINSIGHT_DATABASE_PATH=/var/data/finsight.sqlite3`) or migrate to managed PostgreSQL. Do not rely on the included ephemeral SQLite path for durable disclosures. See [Render web services](https://render.com/docs/web-services) and [Render disks](https://render.com/docs/disks).
 
 The static frontend is deployed on GitHub Pages, and the FastAPI backend is deployed separately on Render. No financial statements or figures have been independently verified.
