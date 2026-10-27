@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { requestData } from "../lib/api-client.mjs";
 
-type Envelope<T> = { data: T; meta?: Record<string, unknown>; error?: { message?: string } };
 type ProjectStatus = {
   project_status: string;
   data_availability: "empty" | "available";
@@ -61,13 +61,6 @@ const metricGroups = [
   { title: "Leverage & risk", ids: ["total_debt", "net_debt", "debt_to_equity", "interest_coverage", "net_debt_to_ebitda"] },
 ];
 
-async function requestData<T>(path: string): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, { headers: { Accept: "application/json" }, cache: "no-store" });
-  const payload = (await response.json()) as Envelope<T>;
-  if (!response.ok) throw new Error(payload.error?.message || `Request failed (${response.status}).`);
-  return payload.data;
-}
-
 function formatValue(metric: Metric): string {
   if (metric.value === null || !Number.isFinite(Number(metric.value))) return "—";
   const value = Number(metric.value);
@@ -90,6 +83,7 @@ export default function Home() {
   const [provenance, setProvenance] = useState<Provenance[]>([]);
   const [detailState, setDetailState] = useState<LoadState>("ready");
   const [detailError, setDetailError] = useState("");
+  const [detailAttempt, setDetailAttempt] = useState(0);
   const [financialYear, setFinancialYear] = useState("all");
 
   const loadOverview = useCallback(async () => {
@@ -108,11 +102,15 @@ export default function Home() {
     }
     try {
       const [nextStatus, nextCompanies] = await Promise.all([
-        requestData<ProjectStatus>("/api/status"),
-        requestData<Company[]>("/api/companies"),
+        requestData<ProjectStatus>(API_BASE, "/api/status"),
+        requestData<Company[]>(API_BASE, "/api/companies"),
       ]);
       setStatus(nextStatus);
       setCompanies(nextCompanies);
+      if (nextCompanies.length === 0) {
+        setMetrics([]);
+        setProvenance([]);
+      }
       setCompanyId((current) => nextCompanies.some((company) => company.company_id === current) ? current : nextCompanies[0]?.company_id || "");
       setLoadState("ready");
     } catch (error) {
@@ -121,21 +119,20 @@ export default function Home() {
     }
   }, []);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- Starts the initial API load and drives the existing loading state.
   useEffect(() => { void loadOverview(); }, [loadOverview]);
 
   useEffect(() => {
     if (!companyId) {
-      setMetrics([]);
-      setProvenance([]);
-      setDetailState("ready");
       return;
     }
     let active = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Shows the loading state while this selection's requests are in flight.
     setDetailState("loading");
     setDetailError("");
     Promise.all([
-      requestData<Metric[]>(`/api/companies/${encodeURIComponent(companyId)}/metrics?statement_basis=${basis}`),
-      requestData<Provenance[]>(`/api/companies/${encodeURIComponent(companyId)}/provenance`),
+      requestData<Metric[]>(API_BASE, `/api/companies/${encodeURIComponent(companyId)}/metrics?statement_basis=${basis}`),
+      requestData<Provenance[]>(API_BASE, `/api/companies/${encodeURIComponent(companyId)}/provenance`),
     ]).then(([nextMetrics, nextProvenance]) => {
       if (!active) return;
       setMetrics(nextMetrics);
@@ -147,7 +144,7 @@ export default function Home() {
       setDetailState("error");
     });
     return () => { active = false; };
-  }, [companyId, basis]);
+  }, [companyId, basis, detailAttempt]);
 
   const years = useMemo(() => [...new Set(metrics.map((metric) => metric.financial_year))].sort().reverse(), [metrics]);
   const visibleMetrics = useMemo(
@@ -201,12 +198,12 @@ export default function Home() {
         <section className="summary-grid" aria-label="Project data status">
           <article className="summary-card">
             <div className="summary-label">SOURCE-BACKED OBSERVATIONS</div>
-            <div className="summary-value">{loadState === "loading" ? <span className="skeleton short" /> : status?.source_backed_observation_count ?? "—"}</div>
+            <div className="summary-value">{loadState === "loading" ? <span className="skeleton short" /> : loadState === "error" ? "—" : status?.source_backed_observation_count ?? "—"}</div>
             <div className="summary-foot"><span className="summary-muted">Verified statement line items</span></div>
           </article>
           <article className="summary-card">
             <div className="summary-label">COMPANIES AVAILABLE</div>
-            <div className="summary-value">{loadState === "loading" ? <span className="skeleton short" /> : companies.length}</div>
+            <div className="summary-value">{loadState === "loading" ? <span className="skeleton short" /> : loadState === "error" ? "—" : companies.length}</div>
             <div className="summary-foot"><span className="summary-muted">With imported source data</span></div>
           </article>
           <article className="summary-card">
@@ -216,8 +213,8 @@ export default function Home() {
           </article>
           <article className="summary-card summary-card-accent">
             <div className="summary-label">DATA STATUS</div>
-            <div className="summary-value status-value">{loadState === "loading" ? "Checking" : status?.data_availability === "available" ? "Available" : "Awaiting data"}</div>
-            <div className="summary-foot"><span className="status-dot" />{status?.real_financial_data_onboarded ? "Source-backed records" : "No real company data"}</div>
+            <div className="summary-value status-value">{loadState === "loading" ? "Checking" : loadState === "error" ? "Unavailable" : status?.data_availability === "available" ? "Available" : "Awaiting data"}</div>
+            <div className="summary-foot"><span className="status-dot" />{loadState === "error" ? "API status unknown" : status?.real_financial_data_onboarded ? "Source-backed records" : "No real company data"}</div>
           </article>
         </section>
 
@@ -225,7 +222,7 @@ export default function Home() {
 
         <section className="content-section" id="company">
           <div className="section-heading">
-            <div><p className="eyebrow">RESEARCH WORKSPACE</p><h2>Company analysis</h2><p className="section-subtitle">Review a company's financial history and source-backed metrics.</p></div>
+            <div><p className="eyebrow">RESEARCH WORKSPACE</p><h2>Company analysis</h2><p className="section-subtitle">Review a company&apos;s financial history and source-backed metrics.</p></div>
             {companies.length > 0 && <div className="control-row">
               <label className="sr-only" htmlFor="company-select">Select company</label>
               <select id="company-select" value={companyId} onChange={(event) => { setCompanyId(event.target.value); setFinancialYear("all"); }}>
@@ -237,7 +234,7 @@ export default function Home() {
               </select>
             </div>}
           </div>
-          {loadState === "loading" && <div className="empty-card loading-card"><span className="spinner" /><div><strong>Connecting to FinSight</strong><p>Checking source-backed company coverage…</p></div></div>}
+          {loadState === "loading" && <div className="empty-card loading-card"><span className="spinner" /><div><strong>Connecting to FinSight</strong><p>The API may be waking after inactivity. This first request can take a little longer.</p></div></div>}
           {loadState === "ready" && companies.length === 0 && <div className="empty-card"><div className="empty-icon">⌕</div><div><span className="empty-kicker">NO COMPANIES YET</span><h3>Your research workspace is ready.</h3><p>When reviewed annual statement data is added, company history and analysis will appear here. No sample financial results are displayed.</p></div><div className="empty-meta"><span>01</span><span>Source first<br />analysis</span></div></div>}
           {selectedCompany && <div className="company-context">
             <div className="company-initials">{(selectedCompany.ticker || selectedCompany.company_name).slice(0, 2).toUpperCase()}</div>
@@ -252,7 +249,7 @@ export default function Home() {
             {selectedCompany && years.length > 0 && <div className="control-row"><label className="sr-only" htmlFor="year-select">Select financial year</label><select id="year-select" value={financialYear} onChange={(event) => setFinancialYear(event.target.value)}><option value="all">All years</option>{years.map((year) => <option value={year} key={year}>{year}</option>)}</select></div>}
           </div>
           {detailState === "loading" && selectedCompany && <div className="empty-inline"><span className="spinner" />Loading metrics and source references…</div>}
-          {detailState === "error" && selectedCompany && <div className="error-panel" role="alert"><strong>Company data could not be loaded</strong><p>{detailError}</p></div>}
+          {detailState === "error" && selectedCompany && <div className="error-panel" role="alert"><strong>Company data could not be loaded</strong><p>{detailError}</p><button className="button-secondary" onClick={() => setDetailAttempt((attempt) => attempt + 1)}>Retry company requests</button></div>}
           {loadState === "ready" && companies.length === 0 && <div className="metrics-empty"><span className="metric-empty-icon">↗</span><div><strong>Metrics will appear when source data is available.</strong><p>Calculation conventions are documented; this view does not contain placeholder results.</p></div></div>}
           {selectedCompany && detailState === "ready" && metrics.length === 0 && <div className="metrics-empty"><span className="metric-empty-icon">↗</span><div><strong>No {basis} observations for this company.</strong><p>Choose another statement basis or onboard reviewed source-backed observations.</p></div></div>}
           {selectedCompany && detailState === "ready" && visibleMetrics.length > 0 && <div className="metric-groups">

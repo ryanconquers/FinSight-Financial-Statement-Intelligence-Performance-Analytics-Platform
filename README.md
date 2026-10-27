@@ -2,7 +2,7 @@
 
 FinSight is an early-stage financial analytics application for importing source-backed company statements, calculating documented performance metrics, and displaying their inputs and provenance. No real company disclosures have been onboarded; the interface says so and shows no fabricated financial results.
 
-> **Current status:** M1–M2 data foundations and M3 metric/web foundation are implemented. The static dashboard is live on [GitHub Pages](https://ryanconquers.github.io/FinSight-Financial-Statement-Intelligence-Performance-Analytics-Platform/); the API is not deployed. There are no real financial results or company data.
+> **Current status:** M1–M2 data foundations and M3 metric/web foundation are implemented. The dashboard is live on [GitHub Pages](https://ryanconquers.github.io/FinSight-Financial-Statement-Intelligence-Performance-Analytics-Platform/) and connects to the separately hosted Render API. The API currently has no company observations, so no financial results are shown.
 
 ## Objectives and use cases
 
@@ -93,16 +93,16 @@ From the repository root:
 
 ```bash
 python -m pytest -q
-cd web && npm run typecheck && npm run build
+cd web && npm test && npm run lint && npm run typecheck && npm run build
 ```
 
-Python tests cover formulas, missing/zero/negative inputs, period and unit/currency incompatibility, API responses, empty-data behavior, and provenance. Frontend validation currently uses TypeScript and production-build checks; no browser automation suite is configured.
+Python tests cover formulas, missing/zero/negative inputs, period and unit/currency incompatibility, API responses, empty-data behavior, and provenance. Frontend checks include API-client tests (`npm test`), ESLint, TypeScript, and a production build. No browser automation suite is committed.
 
 ## Deployment path and constraints
 
-The Next.js frontend is configured for static export to GitHub Pages through [`.github/workflows/deploy-pages.yml`](.github/workflows/deploy-pages.yml). The workflow publishes the empty-data UI only; GitHub Pages cannot run the FastAPI API. A Render service definition remains in [`render.yaml`](render.yaml) for the API. Deployment details are in [`docs/deployment.md`](docs/deployment.md).
+The Next.js frontend is configured for static export to GitHub Pages through [`.github/workflows/deploy-pages.yml`](.github/workflows/deploy-pages.yml). Its browser client calls the Render API; GitHub Pages serves the static UI and does not run FastAPI. A Render service definition remains in [`render.yaml`](render.yaml) for the API. Deployment details are in [`docs/deployment.md`](docs/deployment.md).
 
-The [GitHub Pages site](https://ryanconquers.github.io/FinSight-Financial-Statement-Intelligence-Performance-Analytics-Platform/) is a static dashboard. It explicitly reports that no API or financial data is connected. The Pages workflow succeeded on 2026-10-27. For a data-backed website, deploy the API separately and set `NEXT_PUBLIC_FINSIGHT_API_URL` at frontend build time; configure the API's CORS origins to include the Pages URL. The included Render definition uses a free service and an ephemeral `/tmp` SQLite file. Render free web services can spin down, and filesystem changes are lost after restart/deploy. Before adding actual statement records, configure durable storage: a paid Render service with a persistent disk mounted at `/var/data`, or migrate the database to managed PostgreSQL.
+The [GitHub Pages site](https://ryanconquers.github.io/FinSight-Financial-Statement-Intelligence-Performance-Analytics-Platform/) is a static dashboard that reads status, company, metric, and provenance data from the deployed Render API. The API currently returns an empty company list, so the UI shows no financial results. The Pages build embeds the public API origin in `NEXT_PUBLIC_FINSIGHT_API_URL`; the Render API allows the Pages origin through CORS. The included Render definition uses a free service and an ephemeral `/tmp` SQLite file. Render free web services can spin down, and filesystem changes are lost after restart/deploy. Before adding actual statement records, configure durable storage: a paid Render service with a persistent disk mounted at `/var/data`, or migrate the database to managed PostgreSQL.
 
 ## Data and limitations
 

@@ -2,7 +2,7 @@
 
 ## Local development
 
-Use Python 3.11+ and Node.js 20.9+ (the current Next.js 16 minimum). From the repository root:
+Use Python 3.11+ and Node.js 22.13+ (required by the current ESLint toolchain). From the repository root:
 
 ```bash
 python -m venv .venv
@@ -26,15 +26,17 @@ Open `http://localhost:3000`; the API health endpoint is `http://localhost:8000/
 
 ## GitHub Pages frontend
 
-The frontend exports as static HTML, CSS, and JavaScript and deploys to GitHub Pages through `.github/workflows/deploy-pages.yml`. GitHub Pages hosts the UI only: the workflow sets a static mode that clearly reports that no API or financial data is connected. It does not ship sample metrics or run the FastAPI application.
+The frontend exports as static HTML, CSS, and JavaScript and deploys to GitHub Pages through `.github/workflows/deploy-pages.yml`. GitHub Pages hosts the UI only; the browser calls the separately deployed Render API for status, companies, metrics, and source provenance. The build embeds the public API origin. No sample metrics are included.
 
-The repository is configured to publish with GitHub Actions. The workflow builds the app with the repository-name base path and deploys the `web/out` artifact on changes to `main`. The live project site is [FinSight on GitHub Pages](https://ryanconquers.github.io/FinSight-Financial-Statement-Intelligence-Performance-Analytics-Platform/). The first deployment completed successfully on 2026-10-27.
+The repository is configured to publish with GitHub Actions. The workflow builds the app with the repository-name base path, embeds `NEXT_PUBLIC_FINSIGHT_API_URL=https://finsight-api-2zh2.onrender.com`, and deploys the `web/out` artifact on changes to `main`. The live project site is [FinSight on GitHub Pages](https://ryanconquers.github.io/FinSight-Financial-Statement-Intelligence-Performance-Analytics-Platform/).
 
 GitHub Pages supports static hosting from a custom GitHub Actions workflow. Next.js static export creates the files in `web/out`; server features such as the FastAPI service require a separate host. See [GitHub Pages publishing sources](https://docs.github.com/en/pages/getting-started-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site) and [Next.js static exports](https://nextjs.org/docs/app/guides/static-exports).
 
 ## API deployment
 
-For a data-connected site later, deploy the API separately. The included Render definition builds with `pip install -r requirements.txt`, starts Uvicorn, and checks `/api/health`. Set `FINSIGHT_CORS_ORIGINS` to the GitHub Pages origin and set `NEXT_PUBLIC_FINSIGHT_API_URL` to the API origin before building the frontend with static mode disabled. The public environment variable is bundled into frontend JavaScript and must contain no credentials.
+The API is deployed at `https://finsight-api-2zh2.onrender.com`. The Pages workflow embeds this public API origin at build time and disables static-only mode. The Render API's `/api/health`, `/api/status`, and `/api/companies` responses and GET preflight were verified with `Origin: https://ryanconquers.github.io`; CORS returns the exact allowed origin and `GET, OPTIONS`. Keep `FINSIGHT_CORS_ORIGINS` set to `https://ryanconquers.github.io` in Render. The public `NEXT_PUBLIC_FINSIGHT_API_URL` value is bundled into frontend JavaScript and must contain no credentials.
+
+The client retries network errors and transient HTTP 502/503/504 responses, allowing the Render free instance time to wake after inactivity. Failed requests end in the existing retryable error state. Dashboard metrics and provenance load only when the API returns a company; the live database currently returns an empty company list.
 
 Render web services have an ephemeral filesystem by default. The included free service stores its empty SQLite file under `/tmp`; it can be recreated after a restart or deploy. This is acceptable only while there is no onboarded financial dataset. Render persistent disks are available to paid services and preserve files only beneath their mount path. Before onboarding real data, either upgrade and mount a persistent disk (for example `/var/data`, with `FINSIGHT_DATABASE_PATH=/var/data/finsight.sqlite3`) or migrate to managed PostgreSQL. Do not rely on the included ephemeral SQLite path for durable disclosures. See [Render web services](https://render.com/docs/web-services) and [Render disks](https://render.com/docs/disks).
 

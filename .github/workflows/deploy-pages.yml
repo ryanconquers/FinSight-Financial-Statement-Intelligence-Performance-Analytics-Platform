@@ -38,7 +38,8 @@ jobs:
         working-directory: web
         env:
           GITHUB_PAGES: "true"
-          NEXT_PUBLIC_FINSIGHT_STATIC_PAGES: "true"
+          NEXT_PUBLIC_FINSIGHT_API_URL: https://finsight-api-2zh2.onrender.com
+          NEXT_PUBLIC_FINSIGHT_STATIC_PAGES: "false"
         run: npm run build
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3

@@ -232,3 +232,5 @@ out/
 *.tsbuildinfo
 web/.env.local
 web/.env.*.local
+!web/lib/
+!web/lib/**
