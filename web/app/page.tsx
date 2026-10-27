@@ -48,6 +48,7 @@ type Provenance = {
 
 type LoadState = "loading" | "ready" | "error";
 const API_BASE = (process.env.NEXT_PUBLIC_FINSIGHT_API_URL || "http://localhost:8000").replace(/\/$/, "");
+const STATIC_PAGES_MODE = process.env.NEXT_PUBLIC_FINSIGHT_STATIC_PAGES === "true";
 
 const percentageMetrics = new Set([
   "revenue_growth", "revenue_cagr", "ebitda_margin", "ebit_margin",
@@ -94,6 +95,17 @@ export default function Home() {
   const loadOverview = useCallback(async () => {
     setLoadState("loading");
     setLoadError("");
+    if (STATIC_PAGES_MODE) {
+      setStatus({
+        project_status: "under_development",
+        data_availability: "empty",
+        source_backed_observation_count: 0,
+        real_financial_data_onboarded: false,
+      });
+      setCompanies([]);
+      setLoadState("ready");
+      return;
+    }
     try {
       const [nextStatus, nextCompanies] = await Promise.all([
         requestData<ProjectStatus>("/api/status"),
@@ -182,7 +194,7 @@ export default function Home() {
 
         <section className="notice-banner" aria-live="polite">
           <div className="notice-symbol">i</div>
-          <div><strong>Early access foundation</strong><p>Real financial statements have not been onboarded. No company results or peer rankings are shown until source-backed data is available.</p></div>
+          <div><strong>{STATIC_PAGES_MODE ? "Static GitHub Pages site" : "Early access foundation"}</strong><p>{STATIC_PAGES_MODE ? "This static site is not connected to the FinSight API. No financial data or company results are included." : "Real financial statements have not been onboarded. No company results or peer rankings are shown until source-backed data is available."}</p></div>
           <span className="notice-pill">IN DEVELOPMENT</span>
         </section>
 

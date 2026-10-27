@@ -13,7 +13,7 @@ The platform is designed to preserve company-reported labels, periods, statement
 - Python, Pandas, Decimal, FastAPI, and SQLite for ingestion, calculations, and API responses
 - Next.js 16 with TypeScript for the dashboard
 - Pytest, HTTPX, and Node/TypeScript build checks
-- Vercel frontend and Render API are the documented deployment path; neither is configured or live
+- GitHub Pages static frontend deployment is configured through GitHub Actions; the FastAPI service remains separate
 
 ```text
 source-backed CSV -> validation -> SQLite observations
@@ -100,9 +100,9 @@ Python tests cover formulas, missing/zero/negative inputs, period and unit/curre
 
 ## Deployment path and constraints
 
-The API has a Render service definition in [`render.yaml`](render.yaml); the Vercel frontend should use `web/` as its project root. Steps and required settings are in [`docs/deployment.md`](docs/deployment.md).
+The Next.js frontend is configured for static export to GitHub Pages through [`.github/workflows/deploy-pages.yml`](.github/workflows/deploy-pages.yml). The workflow publishes the empty-data UI only; GitHub Pages cannot run the FastAPI API. A Render service definition remains in [`render.yaml`](render.yaml) for the API. Deployment details are in [`docs/deployment.md`](docs/deployment.md).
 
-The included Render definition uses a free service and an ephemeral `/tmp` SQLite file. Render free web services can spin down, and filesystem changes are lost after restart/deploy. Since the database is currently empty, it can be recreated. Before adding actual statement records, configure durable storage: a paid Render service with a persistent disk mounted at `/var/data`, or migrate the database to managed PostgreSQL. Vercel requires the public API origin as `NEXT_PUBLIC_FINSIGHT_API_URL` at build time; Render CORS must allow the deployed frontend origin. Provider accounts are not connected, and no public deployment has been verified.
+The GitHub Pages workflow uses a static mode that explicitly reports that no API or financial data is connected. For a data-backed website, deploy the API separately and set `NEXT_PUBLIC_FINSIGHT_API_URL` at frontend build time; configure the API's CORS origins to include the Pages URL. The included Render definition uses a free service and an ephemeral `/tmp` SQLite file. Render free web services can spin down, and filesystem changes are lost after restart/deploy. Before adding actual statement records, configure durable storage: a paid Render service with a persistent disk mounted at `/var/data`, or migrate the database to managed PostgreSQL. No public deployment is live until the Pages workflow succeeds.
 
 ## Data and limitations
 
