@@ -220,17 +220,18 @@ def _balance_pair(
     current: dict[tuple[str, str], FinancialObservation],
     previous: dict[tuple[str, str], FinancialObservation],
     line_item_id: str,
-) -> tuple[FinancialObservation | None, FinancialObservation | None, str | None]:
+) -> tuple[FinancialObservation | None, FinancialObservation | None, str | None, bool]:
     closing = _get(current, "balance_sheet", line_item_id)
     opening = _get(previous, "balance_sheet", line_item_id)
     if closing is None or closing.value is None:
-        return opening, closing, f"Closing {line_item_id} balance is missing."
+        return opening, closing, f"Closing {line_item_id} balance is missing.", True
     valid, reason = _valid_opening_balance(anchor, opening, closing)
     if not valid:
-        return opening, closing, reason
+        missing = opening is None or opening.value is None
+        return opening, closing, reason, missing
     if (closing.period_start, closing.period_end) != (anchor.period_start, anchor.period_end):
-        return opening, closing, f"Closing {line_item_id} balance has a mismatched reporting period."
-    return opening, closing, None
+        return opening, closing, f"Closing {line_item_id} balance has a mismatched reporting period.", False
+    return opening, closing, None, False
 
 
 def _average_balance(
@@ -312,8 +313,12 @@ def _calculate_period(
     ):
         formula = f"net income / average {balance_id}"
         numerator, issue = _current_inputs(anchor, current, (("income_statement", numerator_id),), metric_id, name, formula)
-        opening, closing, balance_error = _balance_pair(anchor, current, previous, balance_id)
-        if issue:
+        opening, closing, balance_error, balance_missing = _balance_pair(anchor, current, previous, balance_id)
+        if balance_error and not balance_missing:
+            available = numerator + [item for item in (opening, closing) if item is not None and item.value is not None]
+            explanation = f"{issue.explanation} {balance_error}" if issue and issue.status == "invalid_input" else balance_error
+            output.append(_invalid(anchor, metric_id, name, formula, explanation, available))
+        elif issue:
             output.append(issue)
         elif balance_error:
             available = numerator + [item for item in (opening, closing) if item is not None and item.value is not None]
@@ -335,14 +340,24 @@ def _calculate_period(
     formula = "EBIT / average (total assets - current liabilities)"
     ebit, issue = _current_inputs(anchor, current, (("income_statement", "ebit"),), metric_id, "Return on capital employed", formula)
     balance_pairs = {line: _balance_pair(anchor, current, previous, line) for line in ("total_assets", "current_liabilities")}
-    balance_errors = [error for _, _, error in balance_pairs.values() if error]
-    if issue:
+    balance_errors = [(error, missing) for _, _, error, missing in balance_pairs.values() if error]
+    missing_errors = [error for error, missing in balance_errors if missing]
+    incompatible_errors = [error for error, missing in balance_errors if not missing]
+    if incompatible_errors:
+        available_balances = [
+            item for opening, closing, _, _ in balance_pairs.values()
+            for item in (opening, closing)
+            if item is not None and item.value is not None
+        ]
+        issue_detail = f"{issue.explanation} " if issue and issue.status == "invalid_input" else ""
+        output.append(_invalid(anchor, metric_id, "Return on capital employed", formula, issue_detail + "; ".join(incompatible_errors), [*ebit, *available_balances]))
+    elif issue:
         output.append(issue)
     elif balance_errors:
-        output.append(_missing(anchor, metric_id, "Return on capital employed", formula, balance_errors, ebit))
+        output.append(_missing(anchor, metric_id, "Return on capital employed", formula, missing_errors, ebit))
     else:
-        assets_open, assets_close, _ = balance_pairs["total_assets"]
-        liabilities_open, liabilities_close, _ = balance_pairs["current_liabilities"]
+        assets_open, assets_close, _, _ = balance_pairs["total_assets"]
+        liabilities_open, liabilities_close, _, _ = balance_pairs["current_liabilities"]
         assert all(item is not None and item.value is not None for item in (assets_open, assets_close, liabilities_open, liabilities_close))
         refs = [*ebit, assets_open, assets_close, liabilities_open, liabilities_close]
         if any(item.currency != ebit[0].currency or item.unit != ebit[0].unit for item in refs[1:]):
@@ -398,23 +413,27 @@ def _calculate_period(
         ("payable_days", "trade_payables", "purchases", "income_statement", "Payable days"),
     ):
         formula = formulas[metric_id]
-        flow, issue = _current_inputs(anchor, current, ((statement_type, flow_id),), metric_id, name, formula)
-        opening, closing, balance_error = _balance_pair(anchor, current, previous, balance_id)
-        if issue:
+        flow, issue = _current_inputs(anchor, current, ((statement_type, flow_id),), metric_id, name, formula, unit="days")
+        opening, closing, balance_error, balance_missing = _balance_pair(anchor, current, previous, balance_id)
+        if balance_error and not balance_missing:
+            available = flow + [item for item in (opening, closing) if item is not None and item.value is not None]
+            explanation = f"{issue.explanation} {balance_error}" if issue and issue.status == "invalid_input" else balance_error
+            output.append(_invalid(anchor, metric_id, name, formula, explanation, available, unit="days"))
+        elif issue:
             output.append(issue)
         elif balance_error:
-            output.append(_missing(anchor, metric_id, name, formula, [balance_error], flow))
+            output.append(_missing(anchor, metric_id, name, formula, [balance_error], flow, unit="days"))
         else:
             assert opening and closing and opening.value is not None and closing.value is not None
             refs = [*flow, opening, closing]
             if any(item.unit != flow[0].unit or item.currency != flow[0].currency for item in (opening, closing)):
-                output.append(_invalid(anchor, metric_id, name, formula, "Working-capital balances and flow use incompatible units or currencies.", refs))
+                output.append(_invalid(anchor, metric_id, name, formula, "Working-capital balances and flow use incompatible units or currencies.", refs, unit="days"))
             elif flow[0].value <= 0:
-                output.append(_invalid(anchor, metric_id, name, formula, f"{flow_id} denominator must be positive.", refs))
+                output.append(_invalid(anchor, metric_id, name, formula, f"{flow_id} denominator must be positive.", refs, unit="days"))
             else:
                 average = _average_balance(opening, closing)
                 if average < 0:
-                    output.append(_invalid(anchor, metric_id, name, formula, f"Average {balance_id} must not be negative.", refs))
+                    output.append(_invalid(anchor, metric_id, name, formula, f"Average {balance_id} must not be negative.", refs, unit="days"))
                 else:
                     days = Decimal((anchor.period_end - anchor.period_start).days + 1)
                     result = average / flow[0].value * days

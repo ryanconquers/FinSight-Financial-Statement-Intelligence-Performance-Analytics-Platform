@@ -2,7 +2,7 @@
 
 FinSight is an early-stage financial analytics application for importing source-backed company statements, calculating documented performance metrics, and displaying their inputs and provenance. No real company disclosures have been onboarded; the interface says so and shows no fabricated financial results.
 
-> **Current status:** M1–M2 data foundations and M3 metric/web foundation are implemented. The dashboard is live on [GitHub Pages](https://ryanconquers.github.io/FinSight-Financial-Statement-Intelligence-Performance-Analytics-Platform/) and connects to the separately hosted Render API. The API currently has no company observations, so no financial results are shown.
+> **Current status:** M1–M2 data foundations and M3 metric/web foundation are implemented. The dashboard is live on [GitHub Pages](https://ryanconquers.github.io/FinSight-Financial-Statement-Intelligence-Performance-Analytics-Platform/) and connects to the FastAPI backend on Render. The live frontend integration has been tested for status and company-list requests. The API currently has no company records, so company-level metrics and provenance have not been verified end to end and no financial results are shown.
 
 ## Objectives and use cases
 
@@ -13,7 +13,7 @@ The platform is designed to preserve company-reported labels, periods, statement
 - Python, Pandas, Decimal, FastAPI, and SQLite for ingestion, calculations, and API responses
 - Next.js 16 with TypeScript for the dashboard
 - Pytest, HTTPX, and Node/TypeScript build checks
-- GitHub Pages static frontend deployment is configured through GitHub Actions; the FastAPI service remains separate
+- GitHub Pages static frontend; FastAPI backend deployed separately on Render
 
 ```text
 source-backed CSV -> validation -> SQLite observations
@@ -102,11 +102,11 @@ Python tests cover formulas, missing/zero/negative inputs, period and unit/curre
 
 The Next.js frontend is configured for static export to GitHub Pages through [`.github/workflows/deploy-pages.yml`](.github/workflows/deploy-pages.yml). Its browser client calls the Render API; GitHub Pages serves the static UI and does not run FastAPI. A Render service definition remains in [`render.yaml`](render.yaml) for the API. Deployment details are in [`docs/deployment.md`](docs/deployment.md).
 
-The [GitHub Pages site](https://ryanconquers.github.io/FinSight-Financial-Statement-Intelligence-Performance-Analytics-Platform/) is a static dashboard that reads status, company, metric, and provenance data from the deployed Render API. The API currently returns an empty company list, so the UI shows no financial results. The Pages build embeds the public API origin in `NEXT_PUBLIC_FINSIGHT_API_URL`; the Render API allows the Pages origin through CORS. The included Render definition uses a free service and an ephemeral `/tmp` SQLite file. Render free web services can spin down, and filesystem changes are lost after restart/deploy. Before adding actual statement records, configure durable storage: a paid Render service with a persistent disk mounted at `/var/data`, or migrate the database to managed PostgreSQL.
+The [GitHub Pages site](https://ryanconquers.github.io/FinSight-Financial-Statement-Intelligence-Performance-Analytics-Platform/) is a static dashboard that reads status, company, metric, and provenance data from the deployed Render API. Live integration checks confirmed successful status and company-list requests; the API currently returns no company records, so company-level metrics and provenance have not been verified end to end. Deployment checks do not verify financial statements or figures, which have not been independently verified. The Pages build embeds the public API origin in `NEXT_PUBLIC_FINSIGHT_API_URL`; the Render API allows the Pages origin through CORS. The included Render definition uses a free service and an ephemeral `/tmp` SQLite file. Render free web services can spin down, and filesystem changes are lost after restart/deploy. Before adding actual statement records, configure durable storage: a paid Render service with a persistent disk mounted at `/var/data`, or migrate the database to managed PostgreSQL.
 
 ## Data and limitations
 
-There is no real financial data and no synthetic financial dataset in the repository. Automated tests create small artificial rows only in temporary files/databases. CSV provenance is format-checked but not fetched or independently verified. The currency validator checks code shape, not membership in a maintained registry. Reported EBITDA is used as provided; line-item mappings and accounting definitions still need analyst review. SQLite `NUMERIC` is not a fixed-scale decimal type, so the engine uses Decimal after reading stored observations but cannot restore precision already rounded by SQLite affinity. No peer benchmarking, Power BI export, authentication, or deployment is implemented.
+There is no real financial data and no synthetic financial dataset in the repository. Automated tests create small artificial rows only in temporary files/databases. CSV provenance is format-checked but not fetched or independently verified. The currency validator checks code shape, not membership in a maintained registry. Reported EBITDA is used as provided; line-item mappings and accounting definitions still need analyst review. SQLite `NUMERIC` is not a fixed-scale decimal type, so the engine uses Decimal after reading stored observations but cannot restore precision already rounded by SQLite affinity. No peer benchmarking, Power BI export, or authentication is implemented.
 
 ## License
 

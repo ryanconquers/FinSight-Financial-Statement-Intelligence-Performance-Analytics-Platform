@@ -2,6 +2,83 @@ const RETRYABLE_STATUSES = new Set([502, 503, 504]);
 
 const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
+const isRecord = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
+const isString = (value) => typeof value === "string";
+const isNullableString = (value) => value === null || isString(value);
+const isNonNegativeInteger = (value) => Number.isInteger(value) && value >= 0;
+
+function invalidResponse(path, detail) {
+  return new Error(`The FinSight API returned an invalid response for ${path}: ${detail}`);
+}
+
+function validateArray(data, path, validateItem) {
+  if (!Array.isArray(data)) throw invalidResponse(path, "data must be an array.");
+  for (const [index, item] of data.entries()) {
+    if (!validateItem(item)) throw invalidResponse(path, `data[${index}] has an unexpected shape.`);
+  }
+}
+
+function validateData(path, data) {
+  const endpoint = path.split("?", 1)[0];
+  if (endpoint === "/api/status") {
+    if (!isRecord(data)
+      || !isString(data.project_status)
+      || !["empty", "available"].includes(data.data_availability)
+      || !isNonNegativeInteger(data.source_backed_observation_count)
+      || typeof data.real_financial_data_onboarded !== "boolean") {
+      throw invalidResponse(path, "data must contain valid project status, availability, observation count, and onboarding fields.");
+    }
+    return;
+  }
+  if (endpoint === "/api/health") {
+    if (!isRecord(data) || data.status !== "ok") throw invalidResponse(path, "data.status must be 'ok'.");
+    return;
+  }
+  if (endpoint === "/api/companies") {
+    validateArray(data, path, (item) => isRecord(item)
+      && isString(item.company_id)
+      && isString(item.company_name)
+      && isNullableString(item.ticker)
+      && isString(item.reporting_currency)
+      && isNonNegativeInteger(item.financial_year_count)
+      && isString(item.first_financial_year)
+      && isString(item.last_financial_year));
+    return;
+  }
+  if (/^\/api\/companies\/[^/]+\/metrics$/.test(endpoint)) {
+    validateArray(data, path, (item) => isRecord(item)
+      && isString(item.metric_id)
+      && isString(item.metric_name)
+      && isString(item.company_id)
+      && isString(item.financial_year)
+      && isString(item.period_start)
+      && isString(item.period_end)
+      && isString(item.statement_basis)
+      && isNullableString(item.value)
+      && isString(item.unit)
+      && isNullableString(item.currency)
+      && ["calculated", "unavailable", "invalid_input"].includes(item.status)
+      && isString(item.explanation)
+      && isString(item.formula)
+      && Array.isArray(item.inputs)
+      && item.inputs.every((input) => isRecord(input) && isString(input.source_id) && Number.isInteger(input.observation_id))
+      && Array.isArray(item.warnings)
+      && item.warnings.every(isString));
+    return;
+  }
+  if (/^\/api\/companies\/[^/]+\/provenance$/.test(endpoint)) {
+    validateArray(data, path, (item) => isRecord(item)
+      && isString(item.source_id)
+      && isString(item.publisher)
+      && isNullableString(item.source_url)
+      && isNullableString(item.publication_date)
+      && isString(item.retrieved_at)
+      && isString(item.financial_year)
+      && isString(item.statement_basis)
+      && isString(item.statement_type));
+  }
+}
+
 /**
  * Fetch data from the FinSight API envelope, retrying transient Render/network failures.
  * @template T
@@ -55,9 +132,10 @@ export async function requestData(apiBase, path, options = {}) {
       }
 
       if (payload !== undefined && response.ok) {
-        if (!payload || !Object.hasOwn(payload, "data")) {
+        if (!isRecord(payload) || !Object.hasOwn(payload, "data")) {
           throw new Error("The FinSight API response did not contain a data field.");
         }
+        validateData(path, payload.data);
         return payload.data;
       }
       if (payload !== undefined && !response.ok) {

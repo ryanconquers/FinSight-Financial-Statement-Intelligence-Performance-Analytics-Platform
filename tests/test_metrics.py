@@ -1,5 +1,6 @@
 """Pure metric tests use artificial values only in temporary in-test objects."""
 
+from dataclasses import replace
 from datetime import date
 from decimal import Decimal
 
@@ -117,6 +118,8 @@ def test_average_balance_returns_and_working_capital_days():
         item = metrics[("FY2025", metric_id)]
         assert item.status == "calculated", (metric_id, item.explanation)
         assert item.value == pytest.approx(value)
+        if metric_id.endswith("_days"):
+            assert item.unit == "days"
     ccc = metrics[("FY2025", "cash_conversion_cycle")]
     assert ccc.status == "calculated"
     assert ccc.value == pytest.approx(expected["receivable_days"] + expected["inventory_days"] - expected["payable_days"])
@@ -130,6 +133,106 @@ def test_missing_opening_balance_is_unavailable_not_zero():
     assert roa.status == "unavailable"
     assert "Opening balance" in roa.explanation
     assert roa.value is None
+
+
+@pytest.mark.parametrize(
+    ("metric_id", "balance_id"),
+    [("roe", "total_equity"), ("roce", "current_liabilities")],
+)
+def test_missing_return_metric_balance_is_unavailable(metric_id, balance_id):
+    items = [item for item in complete_history() if not (item.financial_year == "FY2024" and item.line_item_id == balance_id)]
+    result = result_map(items)[("FY2025", metric_id)]
+    assert result.status == "unavailable"
+    assert result.value is None
+
+
+@pytest.mark.parametrize("metric_id", ["receivable_days", "inventory_days", "payable_days"])
+def test_missing_working_capital_balance_is_unavailable_with_days_unit(metric_id):
+    balance_id = {
+        "receivable_days": "trade_receivables",
+        "inventory_days": "inventory",
+        "payable_days": "trade_payables",
+    }[metric_id]
+    items = [item for item in complete_history() if not (item.financial_year == "FY2024" and item.line_item_id == balance_id)]
+    result = result_map(items)[("FY2025", metric_id)]
+    assert result.status == "unavailable"
+    assert result.unit == "days"
+
+
+@pytest.mark.parametrize(
+    ("metric_id", "balance_id", "change"),
+    [
+        ("roa", "total_assets", {"period_end": date(2024, 3, 30)}),
+        ("roe", "total_equity", {"currency": "USD"}),
+        ("roce", "total_assets", {"unit": "INR_lakh"}),
+        ("receivable_days", "trade_receivables", {"currency": "USD"}),
+        ("inventory_days", "inventory", {"period_end": date(2024, 3, 30)}),
+        ("payable_days", "trade_payables", {"unit": "INR_lakh"}),
+    ],
+)
+def test_present_incompatible_balance_is_invalid_input(metric_id, balance_id, change):
+    items = complete_history()
+    items = [
+        replace(item, **change)
+        if item.financial_year == "FY2024" and item.line_item_id == balance_id
+        else item
+        for item in items
+    ]
+    result = result_map(items)[("FY2025", metric_id)]
+    assert result.status == "invalid_input"
+    assert result.value is None
+    if metric_id.endswith("_days"):
+        assert result.unit == "days"
+
+
+@pytest.mark.parametrize("metric_id", ["receivable_days", "inventory_days", "payable_days"])
+def test_invalid_working_capital_flow_uses_days_unit(metric_id):
+    flow_id = {
+        "receivable_days": "revenue",
+        "inventory_days": "cost_of_goods_sold",
+        "payable_days": "purchases",
+    }[metric_id]
+    items = [replace(item, value=Decimal(0)) if item.financial_year == "FY2025" and item.line_item_id == flow_id else item for item in complete_history()]
+    result = result_map(items)[("FY2025", metric_id)]
+    assert result.status == "invalid_input"
+    assert result.unit == "days"
+
+
+@pytest.mark.parametrize(
+    ("metric_id", "flow_id"),
+    [("receivable_days", "revenue"), ("inventory_days", "cost_of_goods_sold"), ("payable_days", "purchases")],
+)
+def test_missing_working_capital_flow_uses_days_unit(metric_id, flow_id):
+    items = [item for item in complete_history() if not (item.financial_year == "FY2025" and item.line_item_id == flow_id)]
+    result = result_map(items)[("FY2025", metric_id)]
+    assert result.status == "unavailable"
+    assert result.unit == "days"
+
+
+def test_incompatible_working_capital_balance_takes_precedence_over_missing_flow():
+    items = [
+        replace(item, currency="USD")
+        if item.financial_year == "FY2024" and item.line_item_id == "trade_receivables"
+        else item
+        for item in complete_history()
+        if not (item.financial_year == "FY2025" and item.line_item_id == "revenue")
+    ]
+    result = result_map(items)[("FY2025", "receivable_days")]
+    assert result.status == "invalid_input"
+    assert result.unit == "days"
+    assert "incompatible currencies" in result.explanation
+
+
+def test_mixed_statement_basis_is_rejected_at_company_input_boundary():
+    items = complete_history()
+    items = [
+        replace(item, statement_basis="standalone")
+        if item.financial_year == "FY2024" and item.line_item_id == "total_assets"
+        else item
+        for item in items
+    ]
+    with pytest.raises(ValueError, match="one company and one statement basis"):
+        calculate_company_metrics(items)
 
 
 def test_missing_operating_inputs_return_unavailable_with_named_requirements():

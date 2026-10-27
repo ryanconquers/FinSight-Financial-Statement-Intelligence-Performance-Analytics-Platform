@@ -38,7 +38,7 @@ type Metric = {
 type Provenance = {
   source_id: string;
   publisher: string;
-  source_url: string;
+  source_url: string | null;
   publication_date: string | null;
   retrieved_at: string;
   financial_year: string;
@@ -199,7 +199,7 @@ export default function Home() {
           <article className="summary-card">
             <div className="summary-label">SOURCE-BACKED OBSERVATIONS</div>
             <div className="summary-value">{loadState === "loading" ? <span className="skeleton short" /> : loadState === "error" ? "—" : status?.source_backed_observation_count ?? "—"}</div>
-            <div className="summary-foot"><span className="summary-muted">Verified statement line items</span></div>
+            <div className="summary-foot"><span className="summary-muted">Imported non-synthetic observation records</span></div>
           </article>
           <article className="summary-card">
             <div className="summary-label">COMPANIES AVAILABLE</div>
@@ -235,7 +235,7 @@ export default function Home() {
             </div>}
           </div>
           {loadState === "loading" && <div className="empty-card loading-card"><span className="spinner" /><div><strong>Connecting to FinSight</strong><p>The API may be waking after inactivity. This first request can take a little longer.</p></div></div>}
-          {loadState === "ready" && companies.length === 0 && <div className="empty-card"><div className="empty-icon">⌕</div><div><span className="empty-kicker">NO COMPANIES YET</span><h3>Your research workspace is ready.</h3><p>When reviewed annual statement data is added, company history and analysis will appear here. No sample financial results are displayed.</p></div><div className="empty-meta"><span>01</span><span>Source first<br />analysis</span></div></div>}
+          {loadState === "ready" && companies.length === 0 && <div className="empty-card"><div className="empty-icon">⌕</div><div><span className="empty-kicker">NO COMPANIES YET</span><h3>Your research workspace is ready.</h3><p>When source-backed annual statement data is added, company history and analysis will appear here. No sample financial results are displayed.</p></div><div className="empty-meta"><span>01</span><span>Source first<br />analysis</span></div></div>}
           {selectedCompany && <div className="company-context">
             <div className="company-initials">{(selectedCompany.ticker || selectedCompany.company_name).slice(0, 2).toUpperCase()}</div>
             <div><strong>{selectedCompany.company_name}</strong><span>{selectedCompany.ticker || "Listed company"} · {selectedCompany.reporting_currency} reporting currency</span></div>
@@ -251,7 +251,7 @@ export default function Home() {
           {detailState === "loading" && selectedCompany && <div className="empty-inline"><span className="spinner" />Loading metrics and source references…</div>}
           {detailState === "error" && selectedCompany && <div className="error-panel" role="alert"><strong>Company data could not be loaded</strong><p>{detailError}</p><button className="button-secondary" onClick={() => setDetailAttempt((attempt) => attempt + 1)}>Retry company requests</button></div>}
           {loadState === "ready" && companies.length === 0 && <div className="metrics-empty"><span className="metric-empty-icon">↗</span><div><strong>Metrics will appear when source data is available.</strong><p>Calculation conventions are documented; this view does not contain placeholder results.</p></div></div>}
-          {selectedCompany && detailState === "ready" && metrics.length === 0 && <div className="metrics-empty"><span className="metric-empty-icon">↗</span><div><strong>No {basis} observations for this company.</strong><p>Choose another statement basis or onboard reviewed source-backed observations.</p></div></div>}
+          {selectedCompany && detailState === "ready" && metrics.length === 0 && <div className="metrics-empty"><span className="metric-empty-icon">↗</span><div><strong>No {basis} observations for this company.</strong><p>Choose another statement basis or onboard source-backed observations with provenance.</p></div></div>}
           {selectedCompany && detailState === "ready" && visibleMetrics.length > 0 && <div className="metric-groups">
             {metricGroups.map((group) => {
               const groupMetrics = group.ids.map((id) => metricsById.get(id)).filter((item): item is Metric => Boolean(item));
@@ -273,11 +273,11 @@ export default function Home() {
           <div className="section-heading"><div><p className="eyebrow">TRACEABLE DISCLOSURES</p><h2>Data provenance</h2><p className="section-subtitle">Source documents and reporting periods behind imported observations.</p></div></div>
           {detailState === "loading" && selectedCompany && <div className="empty-inline"><span className="spinner" />Loading source register…</div>}
           {loadState === "ready" && !companies.length && <div className="provenance-empty"><span>↗</span><div><strong>Source register is empty</strong><p>Publisher, URL, retrieval date, reporting basis, and financial period will be shown after data onboarding.</p></div></div>}
-          {selectedCompany && detailState === "ready" && provenance.length === 0 && <div className="provenance-empty"><span>↗</span><div><strong>No source references for this company</strong><p>Only reviewed records with source provenance are included.</p></div></div>}
-          {provenance.length > 0 && <div className="source-list">{provenance.map((source, index) => <article className="source-row" key={`${source.source_id}-${source.financial_year}-${source.statement_type}`}><div className="source-index">{String(index + 1).padStart(2, "0")}</div><div className="source-main"><strong>{source.publisher}</strong><a href={source.source_url} target="_blank" rel="noreferrer">Open disclosure <span>↗</span></a></div><div className="source-period">{source.financial_year}<span>{source.statement_basis} · {source.statement_type.replaceAll("_", " ")}</span></div><div className="source-date">Retrieved {source.retrieved_at}</div></article>)}</div>}
+          {selectedCompany && detailState === "ready" && provenance.length === 0 && <div className="provenance-empty"><span>↗</span><div><strong>No source references for this company</strong><p>Only records with source provenance are included.</p></div></div>}
+          {provenance.length > 0 && <div className="source-list">{provenance.map((source, index) => <article className="source-row" key={`${source.source_id}-${source.financial_year}-${source.statement_type}`}><div className="source-index">{String(index + 1).padStart(2, "0")}</div><div className="source-main"><strong>{source.publisher}</strong>{source.source_url ? <a href={source.source_url} target="_blank" rel="noreferrer">Open disclosure <span>↗</span></a> : <span>Disclosure link unavailable</span>}</div><div className="source-period">{source.financial_year}<span>{source.statement_basis} · {source.statement_type.replaceAll("_", " ")}</span></div><div className="source-date">Retrieved {source.retrieved_at}</div></article>)}</div>}
         </section>
 
-        <footer className="footer"><span>FinSight <span className="footer-separator">·</span> Financial statement intelligence</span><span>Analysis ready when source data is verified.</span></footer>
+        <footer className="footer"><span>FinSight <span className="footer-separator">·</span> Financial statement intelligence</span><span>Analysis ready when source-backed data is available.</span></footer>
       </main>
     </div>
   );
