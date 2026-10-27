@@ -2,7 +2,7 @@
 
 FinSight is an early-stage financial analytics application for importing source-backed company statements, calculating documented performance metrics, and displaying their inputs and provenance. No real company disclosures have been onboarded; the interface says so and shows no fabricated financial results.
 
-> **Current status:** M1–M2 data foundations and M3 metric/web foundation are implemented. The Python metrics engine, FastAPI read API, and Next.js dashboard are locally runnable. There are no real financial results and the site has not been deployed.
+> **Current status:** M1–M2 data foundations and M3 metric/web foundation are implemented. The static dashboard is live on [GitHub Pages](https://ryanconquers.github.io/FinSight-Financial-Statement-Intelligence-Performance-Analytics-Platform/); the API is not deployed. There are no real financial results or company data.
 
 ## Objectives and use cases
 
@@ -102,7 +102,7 @@ Python tests cover formulas, missing/zero/negative inputs, period and unit/curre
 
 The Next.js frontend is configured for static export to GitHub Pages through [`.github/workflows/deploy-pages.yml`](.github/workflows/deploy-pages.yml). The workflow publishes the empty-data UI only; GitHub Pages cannot run the FastAPI API. A Render service definition remains in [`render.yaml`](render.yaml) for the API. Deployment details are in [`docs/deployment.md`](docs/deployment.md).
 
-The GitHub Pages workflow uses a static mode that explicitly reports that no API or financial data is connected. For a data-backed website, deploy the API separately and set `NEXT_PUBLIC_FINSIGHT_API_URL` at frontend build time; configure the API's CORS origins to include the Pages URL. The included Render definition uses a free service and an ephemeral `/tmp` SQLite file. Render free web services can spin down, and filesystem changes are lost after restart/deploy. Before adding actual statement records, configure durable storage: a paid Render service with a persistent disk mounted at `/var/data`, or migrate the database to managed PostgreSQL. No public deployment is live until the Pages workflow succeeds.
+The [GitHub Pages site](https://ryanconquers.github.io/FinSight-Financial-Statement-Intelligence-Performance-Analytics-Platform/) is a static dashboard. It explicitly reports that no API or financial data is connected. The Pages workflow succeeded on 2026-10-27. For a data-backed website, deploy the API separately and set `NEXT_PUBLIC_FINSIGHT_API_URL` at frontend build time; configure the API's CORS origins to include the Pages URL. The included Render definition uses a free service and an ephemeral `/tmp` SQLite file. Render free web services can spin down, and filesystem changes are lost after restart/deploy. Before adding actual statement records, configure durable storage: a paid Render service with a persistent disk mounted at `/var/data`, or migrate the database to managed PostgreSQL.
 
 ## Data and limitations
 

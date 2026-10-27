@@ -28,7 +28,7 @@ Open `http://localhost:3000`; the API health endpoint is `http://localhost:8000/
 
 The frontend exports as static HTML, CSS, and JavaScript and deploys to GitHub Pages through `.github/workflows/deploy-pages.yml`. GitHub Pages hosts the UI only: the workflow sets a static mode that clearly reports that no API or financial data is connected. It does not ship sample metrics or run the FastAPI application.
 
-After pushing the workflow to `main`, configure the repository's **Settings → Pages → Build and deployment → Source** to **GitHub Actions** if it is not already selected. The workflow builds the app with the repository-name base path and deploys the `web/out` artifact. The project site URL is `https://ryanconquers.github.io/FinSight-Financial-Statement-Intelligence-Performance-Analytics-Platform/` after the deployment completes.
+The repository is configured to publish with GitHub Actions. The workflow builds the app with the repository-name base path and deploys the `web/out` artifact on changes to `main`. The live project site is [FinSight on GitHub Pages](https://ryanconquers.github.io/FinSight-Financial-Statement-Intelligence-Performance-Analytics-Platform/). The first deployment completed successfully on 2026-10-27.
 
 GitHub Pages supports static hosting from a custom GitHub Actions workflow. Next.js static export creates the files in `web/out`; server features such as the FastAPI service require a separate host. See [GitHub Pages publishing sources](https://docs.github.com/en/pages/getting-started-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site) and [Next.js static exports](https://nextjs.org/docs/app/guides/static-exports).
 
@@ -38,4 +38,4 @@ For a data-connected site later, deploy the API separately. The included Render 
 
 Render web services have an ephemeral filesystem by default. The included free service stores its empty SQLite file under `/tmp`; it can be recreated after a restart or deploy. This is acceptable only while there is no onboarded financial dataset. Render persistent disks are available to paid services and preserve files only beneath their mount path. Before onboarding real data, either upgrade and mount a persistent disk (for example `/var/data`, with `FINSIGHT_DATABASE_PATH=/var/data/finsight.sqlite3`) or migrate to managed PostgreSQL. Do not rely on the included ephemeral SQLite path for durable disclosures. See [Render web services](https://render.com/docs/web-services) and [Render disks](https://render.com/docs/disks).
 
-The Pages site is not live until the GitHub Actions deployment has completed and its URL has been checked. The API remains unhosted until a separate backend deployment is configured.
+The static frontend is live. The API remains unhosted until a separate backend deployment is configured.
