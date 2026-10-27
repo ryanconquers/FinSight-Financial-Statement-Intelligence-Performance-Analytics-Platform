@@ -1,0 +1,11 @@
+[project]
+name = "FinSight"
+reporting_currency = "INR"
+periodicity = "annual"
+
+[database]
+# Relative to the project root when the application is implemented.
+path = "data/finsight.sqlite3"
+
+[metrics]
+# Planned configuration: metric conventions will be introduced with the metric engine.

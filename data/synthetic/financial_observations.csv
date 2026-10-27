@@ -1,0 +1,3 @@
+record_origin,company_id,company_name,ticker,financial_year,period_start,period_end,statement_basis,statement_type,line_item_id,reported_label,value,unit,currency,source_id,source_url,retrieved_at,is_synthetic
+synthetic,SYNTHETIC_CO_001,Synthetic Test Company,,FY2025,2024-04-01,2025-03-31,standalone,income_statement,revenue,Revenue,1000,INR_crore,INR,SYNTHETIC_TEST_ONLY,,2026-10-27,true
+synthetic,SYNTHETIC_CO_001,Synthetic Test Company,,FY2025,2024-04-01,2025-03-31,standalone,balance_sheet,total_assets,Total assets,750,INR_crore,INR,SYNTHETIC_TEST_ONLY,,2026-10-27,true

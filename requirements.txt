@@ -1,0 +1,3 @@
+# Core processing dependencies will be added with the ingestion and metric milestones.
+# Test dependency for the project test suite:
+pytest>=8.0,<9.0

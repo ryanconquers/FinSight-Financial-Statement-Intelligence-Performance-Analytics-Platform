@@ -218,3 +218,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# FinSight local artifacts
+*.db
+*.sqlite
+*.sqlite3
+.DS_Store
