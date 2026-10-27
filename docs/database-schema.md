@@ -1,16 +1,16 @@
-# Initial database schema (M1)
+# Database schema
 
-The authoritative DDL is `src/finsight/db/schema.sql`. The schema uses SQLite-compatible types, explicit foreign keys, ISO date text, and numeric values. These choices can be mapped to PostgreSQL types later.
+The authoritative DDL is `src/finsight/db/schema.sql`. M2 opens SQLite with foreign-key enforcement enabled and initializes this schema before importing.
 
 ## Tables and relationships
 
-- `companies` has a stable primary key; observations reference it.
-- `sources` stores data provenance; observations and processing logs reference it where applicable.
-- `financial_observations` stores one source-reported line item per company, period, statement basis, and statement type. A unique constraint prevents duplicate keys.
-- `validation_results` records check name, severity, message, and optional observation or run reference.
-- `calculated_metrics` stores calculated values with formula version and traceable input references.
-- `processing_logs` records run-level input and outcome details.
+- `companies`: stable company identifiers, name, ticker, and reporting currency.
+- `sources`: publisher, URL, retrieval date, and synthetic-data marker. M2 accepts only source-backed records and registers `is_synthetic = 0`.
+- `financial_observations`: one reported line item per company, period, statement basis, and statement type. A unique constraint prevents duplicate observation keys.
+- `processing_logs`: one row per successful import transaction, or a separate failed-attempt record after rollback.
+- `validation_results`: errors, warnings, and manual-review findings associated with a processing run.
+- `calculated_metrics`: reserved for M3; no calculations are performed in M2.
 
-`statement_basis` is constrained to `standalone` or `consolidated`; currencies and units are explicit text fields so the importer can enforce a controlled vocabulary. Missing values are not coerced to zero. A numeric zero is valid and remains distinguishable from an absent/NULL value.
+The importer registers company/source rows and valid observations inside one transaction. For a mixed-validity file, validated rows are imported together and the report identifies every invalid row. A database write failure rolls back the registrations, observations, validation results, and success log together; the importer then attempts to record a failed run. Missing CSV values are rejected and never coerced to zero. A numeric zero remains a valid amount.
 
-Foreign-key enforcement must be enabled by each SQLite connection. Reconciliation rules and line-item taxonomy are not enforced in this initial DDL; they belong to the validation and standardisation milestones.
+SQLite's `NUMERIC` affinity does not impose currency or scale conversions. M2 checks consistency and reports mismatches but does not convert units, reconcile statements, or enforce a complete line-item taxonomy.

@@ -1,118 +1,132 @@
 # FinSight — Financial Statement Intelligence & Performance Analytics Platform
 
-FinSight is a Python-based financial analytics platform planned to standardise and analyse five years of financial statements for five Indian listed companies. Its intended outputs include profitability, cash-flow quality, working-capital efficiency, leverage, and peer comparisons for analysis in Power BI.
+FinSight is a Python analytics backend for importing and validating source-backed financial statement observations from Indian listed companies. It is designed to preserve disclosure provenance and prepare consistent data for later financial calculations, peer analysis, and Power BI.
 
-> **Current status:** M1 (foundation and data contract) is complete. The project provides a documented import contract, an initial SQLite schema, a synthetic fixture, and schema/fixture tests. M2 (CSV import and validation) is next. Financial calculations, real-data ingestion, validation workflows, analytics, and dashboard exports are not yet implemented.
+> **Current status:** M2 (CSV ingestion and data validation) is implemented and tested. The importer, validation reports, and transactional SQLite writes are available. No real financial data has been collected or imported. No synthetic financial dataset is included. M3 metric calculations are planned and not implemented.
 
-## Problem and objectives
+## Objectives and use cases
 
-Company disclosures use different labels, units, and levels of detail. FinSight aims to preserve source context while mapping reported values to standard line-item identifiers, making later analysis traceable and comparable. The priority is data integrity, reproducibility, and transparent financial conventions.
+FinSight aims to standardise company disclosures while retaining original reported labels, source references, units, currencies, financial periods, and standalone/consolidated basis. Planned use cases include historical company review, peer comparison, investigation of cash generation and leverage, and Power BI export. An unusual value is a review prompt, not proof of misconduct or distress.
 
-## Business use cases
+## Technology
 
-Planned use cases include reviewing a company's multi-year performance, comparing peers on aligned reporting periods, investigating changes in cash generation and leverage, and exporting clean data for Power BI. Results are analytical aids; unusual values require investigation and are not conclusions about financial distress or misconduct.
-
-## Technology stack
-
-- Python, Pandas, and NumPy for processing and analysis (planned)
-- SQLite initially, using portable schema choices intended to support later PostgreSQL migration
-- CSV for Excel-compatible import and export
-- Pytest for automated tests
-- Power BI for the eventual interactive dashboard
+- Python and Pandas for CSV parsing and validation
+- SQLite for transactional storage; schema types are selected with later PostgreSQL migration in mind
+- CSV and JSON validation reports
+- Pytest for automated checks
+- Power BI integration is planned; no dashboard is included
 
 ## Status and roadmap
 
-- **M1 — Foundation and data contract:** Initial schema, import contract, synthetic fixture, project documentation, and schema/fixture tests. Implemented and tested.
-- **M2 — Import and validation:** CSV ingestion, data-quality checks, reconciliation warnings, and validation reports.
-- **M3 — Metric engine:** Configurable calculations and unit tests.
-- **M4 — Analytics and exports:** Peer comparisons, rankings, and Power BI-ready CSVs.
-- **M5 — Real-data onboarding:** Reviewed source mappings for selected companies and periods.
-
-Features are labelled as implemented only after they exist and have been checked. No real company financial data is included in this milestone.
+- **M1 — Foundation and data contract:** SQLite schema, documented CSV contract, project structure, formula notes, and schema checks. Complete.
+- **M2 — CSV ingestion and validation:** Contract-based parsing, row validation, provenance registration, transactional SQLite import, and machine-readable reports. Implemented and tested (42 passing tests).
+- **M3 — Metric engine:** Configurable financial formulas and calculation tests. Planned.
+- **M4 — Analytics and exports:** Period-aligned peer comparisons, rankings, and Power BI-ready exports. Planned.
+- **M5 — Real-data onboarding:** Select companies and add analyst-reviewed source-backed filings. Planned; no real data is included yet.
 
 ## Architecture
 
 ```text
-CSV source files -> ingestion -> standardisation -> SQLite
-                                        |               |
-                                        v               v
-                                  validation       metric engine
-                                                        |
-                                                        v
-                                             analytics -> CSV exports -> Power BI
+Source-backed CSV
+      |
+      v
+Pandas parser -> contract validation -> row-level report
+                                       |
+                              valid rows only
+                                       v
+                          SQLite transaction
+                    companies + sources + observations
+                                       |
+                    JSON/CSV validation report
 ```
 
-The initial code layout separates these responsibilities so later milestones can add functionality without coupling imports, calculations, and reporting. Raw source files are intended to remain immutable; processed records retain their source and original reported label.
+The importer lives in `src/finsight/ingestion/`, validation rules and report models in `src/finsight/validation/`, SQLite connection and persistence code in `src/finsight/db/`, and the command-line interface in `src/finsight/cli.py`. Data is not silently trimmed, rescaled, or replaced with zero. Errors, warnings, and manual-review findings are reported separately.
 
 ## Project structure
 
 ```text
-config/                 Example application and calculation configuration
-data/raw/               Reserved for original imports; no real data included
-data/processed/         Reserved for standardised outputs
-data/synthetic/         Synthetic test fixture, explicitly labelled
-docs/                   Data contract, schema, and formula documentation
-src/finsight/           Application package by responsibility
-tests/                  Automated tests
-README.md               Project guide and current implementation status
-CHANGELOG.md            Chronological milestone record
-requirements.txt        Runtime and test dependencies
-.gitignore              Local/generated file exclusions
+config/                 Example runtime configuration
+data/raw/               Reserved for source-backed CSVs; currently empty
+docs/                   Data contract, schema, and planned formula notes
+src/finsight/
+  ingestion/            CSV parsing
+  validation/           Contract checks and reports
+  db/                   SQLite schema, connection, and transactional writes
+  metrics/              Reserved for M3
+  analytics/            Reserved for M4
+  exports/              Reserved for M4
+tests/                  Temporary-input and temporary-database tests
+README.md               Project guide and implementation status
+CHANGELOG.md            Milestone history
+requirements.txt        Runtime/test dependencies
 ```
 
-## Data model
+## CSV format and provenance
 
-The initial SQLite schema is documented in [`docs/database-schema.md`](docs/database-schema.md) and defined in [`src/finsight/db/schema.sql`](src/finsight/db/schema.sql).
+The full column contract is in [`docs/data-contract.md`](docs/data-contract.md). Required values include company identity, `FY2025` style financial-year label, ISO period dates, statement type, statement basis, standard line-item ID, source label, finite numeric amount, unit, currency, source ID/publisher/URL, retrieval date, and an explicit `is_synthetic=false` flag. The optional field is `ticker`. Synthetic data or synthetic source labels are rejected. A blank amount is unavailable and invalid; a disclosed zero is valid.
 
-- `companies`: stable identifiers and company master details.
-- `sources`: source publisher, URL, retrieval date, and notes.
-- `financial_observations`: reported value, standard line-item ID, original label, statement, period, statement basis, unit, currency, and source.
-- `validation_results`: check outcome, severity, message, and related record or batch.
-- `calculated_metrics`: metric value and unit, calculation/formula version, and provenance to inputs.
-- `processing_logs`: processing run, input, timestamps, status, and summary.
+M2 validates date syntax and order, FY/end-year alignment, statement enums, units, ISO currency code shape, duplicate observation keys, company/source metadata consistency, numeric finiteness, and provenance. It warns on unusually large amounts or negative values for commonly non-negative line items, and flags unusual periods or peer scale mismatches for manual review. It does not transform units or currencies.
 
-Observation uniqueness is scoped to company, fiscal year, statement basis, statement type, and line item. Missing observations are absent/NULL; they must not be silently replaced with zero. A reported zero remains a stored numeric zero. Statement basis (standalone or consolidated), reporting currency, period, and source are explicit.
+## Install and run
 
-## Data contract and provenance
-
-The starter contract is in [`docs/data-contract.md`](docs/data-contract.md). Every imported observation must carry company identity, financial year, period end, statement basis, statement type, standard line-item ID, numeric value, unit, currency, and source reference. Keep the original company label so mapping choices can be reviewed. Record source URL and retrieval date. Never represent synthetic fixture values as company disclosures.
-
-## Financial metrics
-
-No metric calculations are implemented in M1. The planned formulas and conventions are documented in [`docs/financial-metrics.md`](docs/financial-metrics.md), including assumptions around average balances, denominator validity, signs, and unavailable inputs. Definitions such as EBITDA and purchases may differ between companies and must be documented before comparing results.
-
-## Data validation
-
-Validation is planned for duplicate observations, mandatory fields, financial years, units and currencies, balance-sheet and cash-flow reconciliations where inputs allow, unexpected signs or implausible values, missing metric inputs, and differences between source values and calculated results. A validation result should explain the issue and whether it is an error, warning, or manual-review item. No automated validation engine is implemented yet.
-
-## Data sources
-
-No external financial data source has been loaded. The recommended initial workflow is to select five listed companies with accessible annual reports, import manually reviewed CSVs, and use company annual reports and exchange filings as primary evidence. Store source URLs, publication details, retrieval dates, statement basis, period, and currency. Review each line-item mapping against the source statement; avoid scraping as the first ingestion method because labels and definitions vary.
-
-## Setup and usage
-
-Python package setup and application commands will be documented when the first runnable application functionality is implemented. For now, the SQL schema and fixture are reviewed as project artifacts; the fixture is synthetic and must only be used for tests. No application command or dashboard is available yet.
-
-Install the test dependency and run the schema/fixture checks from the project root:
+From the repository root:
 
 ```bash
 python -m pip install -r requirements.txt
 python -m pytest
 ```
 
-These checks do not create a persistent database. No application command or dashboard is available yet.
+Validate a real, source-backed CSV without database writes:
 
-## Example outputs
+```bash
+PYTHONPATH=src python -m finsight.cli validate /path/to/observations.csv \
+  --report-json /tmp/finsight-validation.json \
+  --report-csv /tmp/finsight-validation.csv
+```
 
-No analytics output or dashboard screenshot exists yet. The synthetic fixture at [`data/synthetic/financial_observations.csv`](data/synthetic/financial_observations.csv) demonstrates the import fields only; every row is marked `synthetic` and does not represent an actual company.
+Validate and import valid rows into SQLite:
 
-## Limitations and assumptions
+```bash
+PYTHONPATH=src python -m finsight.cli ingest /path/to/observations.csv \
+  --db data/finsight.sqlite3 \
+  --report-json /tmp/finsight-import.json \
+  --report-csv /tmp/finsight-import.csv
+```
 
-- The schema and line-item identifiers are an initial contract and may evolve as disclosure coverage is assessed.
-- No real company data, calculations, ingestion workflow, validation engine, exports, or user interface are implemented.
-- Financial periods are annual in the initial scope; fiscal year labels need an agreed convention during ingestion.
-- Working-capital and return metrics depend on definitions and opening balances that may not be available in the first imported year.
-- Currency conversion and cross-period restatement handling are not implemented.
+The database schema is initialized automatically. Parent directories for the database and report files must already exist. Validation uses exit code 1 when errors exist. Import reports distinguish `imported`, `imported_with_findings`, `partial_import_with_validation_errors`, `not_imported_validation_errors`, and `import_failed_rolled_back` outcomes. Valid rows in a mixed file are committed together; invalid rows and their row/field findings are identified in the report. A database write failure rolls the full file transaction back.
+
+## Report severity
+
+- **Error:** invalid or missing data; the affected row is not imported.
+- **Warning:** a data-quality concern that does not prevent import.
+- **Manual review:** an unusual period, plausible-but-unusual amount, or non-comparable peer scale requiring analyst/source review.
+- **Info:** informational report output.
+
+Findings include CSV line numbers (header is line 1) and fields where applicable. Reports include input filename, counts, status, database write summary, and separate severity collections in JSON, plus a findings-oriented CSV.
+
+## Database
+
+See [`docs/database-schema.md`](docs/database-schema.md) and [`src/finsight/db/schema.sql`](src/finsight/db/schema.sql). Import registers companies and source records before observations within one SQLite transaction. Foreign keys are enabled. Existing company/source identifiers must match their registered metadata. Validation findings and processing outcomes are recorded for successful transactions; after rollback, a failed processing log is attempted separately.
+
+The schema separates `companies`, `sources`, `financial_observations`, `validation_results`, `processing_logs`, and the reserved `calculated_metrics` table. Observation uniqueness is keyed by company, fiscal year, statement basis, statement type, and line-item ID.
+
+## Financial metrics
+
+No financial metrics are calculated in M2. Planned formulas and conventions—including growth, margins, returns, cash flow, working capital, and leverage—remain documented in [`docs/financial-metrics.md`](docs/financial-metrics.md) for M3. Calculations will require matching periods, statement basis, units, and currencies.
+
+## Data sources
+
+No company disclosures have been imported. The importer expects analyst-reviewed CSVs whose source URL, publisher, and retrieval date point to the original disclosure. Source URLs are syntax-checked but not fetched. Company selection and real-data collection are deferred to M5.
+
+## Limitations
+
+- The currency check validates uppercase three-letter code shape; it does not confirm a code against a maintained ISO registry.
+- Units are consistency-checked but not converted. Peer records with differing scales or currencies need analyst standardisation before comparison.
+- Annual period length outside 350–380 days is a manual-review finding, not an automatic rejection; non-calendar fiscal year label conventions may need a future configurable mapping.
+- Source URLs are syntax-checked, not fetched or independently verified.
+- Row validation is not a complete accounting reconciliation or line-item taxonomy review.
+- M2 does not calculate financial metrics, perform peer analytics, export Power BI datasets, or collect real financial filings.
+- The existing schema has no row-number column for database findings; CSV row locations are retained in finding messages.
 
 ## License
 
