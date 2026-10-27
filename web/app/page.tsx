@@ -110,6 +110,9 @@ type PeerBenchmark = {
     values: Array<{ company_id: string; value: string | null; unit: string; currency: string | null; period_start: string; period_end: string; is_target: boolean; evidence: Metric | null; sources?: Provenance[] }>;
   }>;
 };
+type ForecastPeriod = Record<string, unknown> & { financial_year: string; period_type: "actual" | "forecast"; currency: string; unit: string; unavailable?: Array<{ metric: string; reason: string }>; values?: Record<string, unknown> };
+type ForecastRecord = { forecast_id: string; company_id: string; statement_basis: "standalone" | "consolidated"; baseline_year: string; forecast_horizon: number; methodology_version: string; assumptions: Record<string, unknown>; revision: number; input_data_stale?: boolean; result?: { created_from_observation_ids?: number[]; created_from_source_ids?: string[]; source_provenance?: Provenance[]; missing_historical_years?: string[]; scenarios: Record<string, { actual_baseline: ForecastPeriod; actual_history?: ForecastPeriod[]; periods: ForecastPeriod[] }> } };
+type ForecastRevision = { revision: number; assumptions: Record<string, unknown>; input_fingerprint: string; saved_at: string; current?: boolean };
 
 type LoadState = "loading" | "ready" | "error";
 const API_BASE = (process.env.NEXT_PUBLIC_FINSIGHT_API_URL || "http://localhost:8000").replace(/\/$/, "");
@@ -156,6 +159,35 @@ export default function Home() {
   const [detailError, setDetailError] = useState("");
   const [detailAttempt, setDetailAttempt] = useState(0);
   const [financialYear, setFinancialYear] = useState("all");
+  const [forecastRecords, setForecastRecords] = useState<ForecastRecord[]>([]);
+  const [forecastRevisions, setForecastRevisions] = useState<ForecastRevision[]>([]);
+  const [forecast, setForecast] = useState<ForecastRecord | null>(null);
+  const [forecastState, setForecastState] = useState<"idle" | "loading" | "ready" | "error">("idle");
+  const [forecastError, setForecastError] = useState("");
+  const [forecastHorizon, setForecastHorizon] = useState("5");
+  const [forecastBaselineYear, setForecastBaselineYear] = useState("latest");
+  const [forecastCurrency, setForecastCurrency] = useState("");
+  const [forecastUnit, setForecastUnit] = useState("");
+  const [forecastGrowth, setForecastGrowth] = useState("8");
+  const [forecastGrossMargin, setForecastGrossMargin] = useState("35");
+  const [forecastEbitdaMargin, setForecastEbitdaMargin] = useState("15");
+  const [forecastOpex, setForecastOpex] = useState("20");
+  const [forecastDa, setForecastDa] = useState("5");
+  const [forecastTax, setForecastTax] = useState("25");
+  const [forecastCapex, setForecastCapex] = useState("4");
+  const [forecastInterest, setForecastInterest] = useState("0");
+  const [forecastReceivableDays, setForecastReceivableDays] = useState("");
+  const [forecastInventoryDays, setForecastInventoryDays] = useState("");
+  const [forecastPayableDays, setForecastPayableDays] = useState("");
+  const [bullGrowth, setBullGrowth] = useState("10");
+  const [bearGrowth, setBearGrowth] = useState("6");
+  const [bullEbitda, setBullEbitda] = useState("16");
+  const [bearEbitda, setBearEbitda] = useState("14");
+  const [bullGrossMargin, setBullGrossMargin] = useState("36");
+  const [bearGrossMargin, setBearGrossMargin] = useState("34");
+  const [bullScenarioOverrides, setBullScenarioOverrides] = useState("{}");
+  const [bearScenarioOverrides, setBearScenarioOverrides] = useState("{}");
+  const [sensitivity, setSensitivity] = useState<Array<Record<string, unknown>>>([]);
 
   const loadOverview = useCallback(async () => {
     setLoadState("loading");
@@ -237,6 +269,111 @@ export default function Home() {
     return () => { active = false; };
   }, [companyId, basis, detailAttempt, peerIds]);
 
+  useEffect(() => {
+    if (!companyId || STATIC_PAGES_MODE) return;
+    let active = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Start the saved-forecast loading state while this company's request runs.
+    setForecastState("loading");
+    const path = `/api/companies/${encodeURIComponent(companyId)}/forecasts`;
+    requestData<ForecastRecord[]>(API_BASE, path).then(async (items) => {
+      if (!active) return;
+      const compatibleItems = items.filter((item) => item.statement_basis === basis);
+      setForecastRecords(compatibleItems);
+      const next = compatibleItems[0] ? await requestData<ForecastRecord>(API_BASE, `${path}/${encodeURIComponent(compatibleItems[0].forecast_id)}`) : null;
+      if (!active) return;
+      setForecast(next);
+      setForecastState("ready");
+    }).catch((error: unknown) => {
+      if (!active) return;
+      setForecastError(error instanceof Error ? error.message : "Could not load saved forecasts.");
+      setForecastState("error");
+    });
+    return () => { active = false; };
+  }, [companyId, basis]);
+
+  useEffect(() => {
+    if (!companyId || !forecast?.forecast_id) return;
+    let active = true;
+    requestData<ForecastRevision[]>(API_BASE, `/api/companies/${encodeURIComponent(companyId)}/forecasts/${encodeURIComponent(forecast.forecast_id)}/revisions`).then((items) => {
+      if (active) setForecastRevisions(items);
+    }).catch(() => { if (active) setForecastRevisions([]); });
+    return () => { active = false; };
+  }, [companyId, forecast?.forecast_id]);
+
+  const forecastPayload = () => {
+    if (!selectedCompany) throw new Error("Select a source-backed company first.");
+    const horizon = Number(forecastHorizon);
+    if (!Number.isInteger(horizon) || horizon < 1 || horizon > 10) throw new Error("Forecast horizon must be an integer from 1–10 years.");
+    const vector = (raw: string, label: string, minimum: number, maximum: number) => {
+      if (!raw.trim()) throw new Error(`${label} is required.`);
+      const values = raw.split(",").map((part) => Number(part.trim()) / 100);
+      if (!values.length || values.some((value) => !Number.isFinite(value) || value < minimum || value > maximum) || (values.length !== 1 && values.length !== horizon)) throw new Error(`${label} must be one value or exactly ${horizon} comma-separated annual values in range.`);
+      return values.length === 1 ? Array.from({ length: horizon }, () => values[0]) : values;
+    };
+    const amountVector = (raw: string, label: string) => {
+      if (!raw.trim()) return null;
+      const values = raw.split(",").map((part) => Number(part.trim()));
+      if (!values.length || values.some((value) => !Number.isFinite(value)) || (values.length !== 1 && values.length !== horizon)) throw new Error(`${label} must be one finite amount or exactly ${horizon} comma-separated annual amounts.`);
+      return values.length === 1 ? Array.from({ length: horizon }, () => values[0]) : values;
+    };
+    const scenarioOverrides = (raw: string, label: string) => {
+      let value: unknown;
+      try { value = JSON.parse(raw); } catch { throw new Error(`${label} must be valid JSON.`); }
+      if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${label} must be a JSON object of forecast assumptions.`);
+      return value as Record<string, unknown>;
+    };
+    const percent = (value: string, label: string, minimum = 0, maximum = 100) => {
+      if (!value.trim()) return null;
+      const number = Number(value);
+      if (!Number.isFinite(number) || number < minimum || number > maximum) throw new Error(`${label} must be from ${minimum}% to ${maximum}%.`);
+      return number / 100;
+    };
+    const baseline = forecastBaselineYear === "latest" ? forecastBaselineYears[0] : forecastBaselineYear;
+    if (!baseline) throw new Error("A source-backed annual baseline is required.");
+    const assumptions: Record<string, unknown> = {
+      revenue_growth: vector(forecastGrowth, "Revenue growth", -0.99, 5), gross_margin: percent(forecastGrossMargin, "Gross margin", -100),
+      ebitda_margin: percent(forecastEbitdaMargin, "EBITDA margin", -500), da_percent_revenue: percent(forecastDa, "D&A margin"),
+      opex_percent_revenue: percent(forecastOpex, "Operating expense ratio"),
+      tax_rate: percent(forecastTax, "Tax rate"), capex_percent_revenue: percent(forecastCapex, "Capex margin"),
+      interest_expense: amountVector(forecastInterest, "Interest expense"),
+    };
+    for (const [key, value] of [["receivable_days", forecastReceivableDays], ["inventory_days", forecastInventoryDays], ["payable_days", forecastPayableDays]] as const) {
+      if (value.trim()) { const days = Number(value); if (!Number.isFinite(days) || days < 0 || days > 1000) throw new Error(`${key} must be from 0 to 1000 days.`); assumptions[key] = days; }
+    }
+    return { baseline_year: baseline, forecast_horizon: horizon, currency: forecastCurrency || forecastCurrencies[0] || selectedCompany.reporting_currency, unit: forecastUnit || forecastUnits[0], assumptions, scenarios: {
+      bull: { revenue_growth: vector(bullGrowth, "Bull revenue growth", -0.99, 5), gross_margin: percent(bullGrossMargin, "Bull gross margin", -100), ebitda_margin: percent(bullEbitda, "Bull EBITDA margin", -500), ...scenarioOverrides(bullScenarioOverrides, "Bull scenario overrides") },
+      bear: { revenue_growth: vector(bearGrowth, "Bear revenue growth", -0.99, 5), gross_margin: percent(bearGrossMargin, "Bear gross margin", -100), ebitda_margin: percent(bearEbitda, "Bear EBITDA margin", -500), ...scenarioOverrides(bearScenarioOverrides, "Bear scenario overrides") },
+    } };
+  };
+
+  const saveForecast = async (update: boolean) => {
+    setForecastState("loading"); setForecastError(""); setSensitivity([]);
+    try {
+      const payload = forecastPayload();
+      const path = `/api/companies/${encodeURIComponent(companyId)}/forecasts${update && forecast ? `/${encodeURIComponent(forecast.forecast_id)}` : `?statement_basis=${basis}`}`;
+      const next = await requestData<ForecastRecord>(API_BASE, path, { method: update ? "PUT" : "POST", body: payload });
+      setForecast(next); setForecastState("ready");
+      const items = await requestData<ForecastRecord[]>(API_BASE, `/api/companies/${encodeURIComponent(companyId)}/forecasts`);
+      setForecastRecords(items);
+      if (update && next.result) {
+        const revisions = await requestData<ForecastRevision[]>(API_BASE, `/api/companies/${encodeURIComponent(companyId)}/forecasts/${encodeURIComponent(next.forecast_id)}/revisions`);
+        setForecastRevisions(revisions);
+      }
+    } catch (error) {
+      setForecastError(error instanceof Error ? error.message : "Forecast could not be generated."); setForecastState("error");
+    }
+  };
+
+  const runSensitivity = async () => {
+    if (!forecast) return;
+    setForecastError("");
+    try {
+      const centerGrowth = Number(forecastGrowth.split(",")[0]) / 100;
+      const response = await requestData<{ sensitivity: Array<Record<string, unknown>> }>(API_BASE, `/api/companies/${encodeURIComponent(companyId)}/forecasts/${encodeURIComponent(forecast.forecast_id)}/sensitivity`, { method: "POST", body: { revenue_growth_values: [centerGrowth - 0.02, centerGrowth, centerGrowth + 0.02], ebitda_margin_values: [Number(forecastEbitdaMargin) / 100 - 0.02, Number(forecastEbitdaMargin) / 100, Number(forecastEbitdaMargin) / 100 + 0.02] } });
+      setSensitivity(response.sensitivity);
+    } catch (error) { setForecastError(error instanceof Error ? error.message : "Sensitivity analysis failed."); }
+  };
+
   const years = useMemo(() => [...new Set(metrics.map((metric) => metric.financial_year))].sort().reverse(), [metrics]);
   const visibleMetrics = useMemo(
     () => metrics.filter((metric) => financialYear === "all" || metric.financial_year === financialYear),
@@ -247,10 +384,21 @@ export default function Home() {
     [reportedObservations, financialYear],
   );
   const selectedCompany = companies.find((company) => company.company_id === companyId);
+  const forecastBaselineYears = [...new Set(reportedObservations.map((item) => item.financial_year))].sort().reverse();
+  const forecastCurrencies = [...new Set(reportedObservations.map((item) => item.currency))].sort();
+  const forecastUnits = [...new Set(reportedObservations.map((item) => item.unit))].sort();
   const metricsById = new Map(visibleMetrics.map((metric) => [metric.metric_id, metric]));
   const reportQuery = new URLSearchParams({ statement_basis: basis, format: "json" });
   peerIds.filter((id) => id !== companyId).forEach((id) => reportQuery.append("peer_ids", id));
   const csvReportQuery = new URLSearchParams({ statement_basis: basis, format: "csv" });
+  const forecastColumns = [
+    ["revenue", "Revenue"], ["revenue_growth", "Growth", true], ["gross_profit", "Gross profit"], ["gross_margin", "Gross margin", true],
+    ["cost_of_goods_sold", "COGS"], ["operating_expenses", "Operating expenses"], ["ebitda", "EBITDA"], ["ebitda_margin", "EBITDA margin", true],
+    ["depreciation_amortization", "D&A"], ["ebit", "EBIT"], ["interest_expense", "Interest"], ["earnings_before_tax", "EBT"],
+    ["tax_expense", "Tax"], ["net_income", "Net income"], ["capital_expenditure", "Capex"], ["accounts_receivable", "Receivables"],
+    ["inventory", "Inventory"], ["accounts_payable", "Payables"], ["net_operating_working_capital", "Net op. WC"],
+    ["change_in_working_capital", "Δ working capital"], ["operating_cash_flow", "Operating cash flow"], ["unlevered_free_cash_flow", "Unlevered FCF"],
+  ] as const;
 
   return (
     <div className="app-shell">
@@ -268,6 +416,7 @@ export default function Home() {
           <a className="nav-link" href="#insights"><span className="nav-icon">↗</span>Insights</a>
           <a className="nav-link" href="#benchmark"><span className="nav-icon">▥</span>Peer comparison</a>
           <a className="nav-link" href="#report"><span className="nav-icon">⇩</span>Analyst report</a>
+          <a className="nav-link" href="#forecast"><span className="nav-icon">⌁</span>Forecasting</a>
           <a className="nav-link" href="#provenance"><span className="nav-icon">↗</span>Data provenance</a>
         </nav>
         <div className="sidebar-bottom">
@@ -439,6 +588,55 @@ export default function Home() {
           <div className="section-heading"><div><p className="eyebrow">ON-DEMAND EXPORT FROM STORED RECORDS</p><h2>Analyst report</h2><p className="section-subtitle">Exports are generated from current API data and include periods, metric definitions, provenance, M4A assessments, insights, and limitations.</p></div></div>
           {loadState === "ready" && companies.length === 0 && <div className="metrics-empty"><strong>Report export awaits company records.</strong><p>No empty or fabricated report is generated.</p></div>}
           {selectedCompany && <div className="report-actions"><a className="button-secondary" href={`${API_BASE}/api/companies/${encodeURIComponent(companyId)}/report?${reportQuery.toString()}`}>Download JSON report</a><a className="button-secondary" href={`${API_BASE}/api/companies/${encodeURIComponent(companyId)}/report?${csvReportQuery.toString()}`}>Download metric CSV</a><p>CSV contains metric rows and provenance references. JSON includes methodology, risk assessments, insights, missing-data disclosures, source register, and selected peer comparisons where requested.</p></div>}
+        </section>
+
+        <section className="content-section" id="forecast">
+          <div className="section-heading"><div><p className="eyebrow">ASSUMPTION-DRIVEN · NOT A PREDICTION</p><h2>Financial forecast</h2><p className="section-subtitle">Forecasts start from the selected company’s latest source-backed annual baseline. Assumptions are illustrative, editable, and saved with a methodology version.</p></div></div>
+          {loadState === "ready" && companies.length === 0 && <div className="metrics-empty"><strong>Forecasting awaits source-backed company records.</strong><p>No baseline or forecast values are fabricated.</p></div>}
+          {selectedCompany && <div className="forecast-panel">
+            <div className="forecast-form">
+              <label>Historical baseline<select value={forecastBaselineYear} onChange={(event) => setForecastBaselineYear(event.target.value)}><option value="latest">Latest · {forecastBaselineYears[0] ?? selectedCompany.last_financial_year}</option>{forecastBaselineYears.map((year) => <option key={year} value={year}>{year}</option>)}</select></label>
+              <label>Currency<select value={forecastCurrency || forecastCurrencies[0] || selectedCompany.reporting_currency} onChange={(event) => setForecastCurrency(event.target.value)}>{(forecastCurrencies.length ? forecastCurrencies : [selectedCompany.reporting_currency]).map((currency) => <option key={currency}>{currency}</option>)}</select></label>
+              <label>Financial unit<select value={forecastUnit || forecastUnits[0] || ""} onChange={(event) => setForecastUnit(event.target.value)}>{forecastUnits.map((unit) => <option key={unit}>{unit}</option>)}</select></label>
+              <label>Horizon (1–10 years)<input type="number" min="1" max="10" value={forecastHorizon} onChange={(event) => setForecastHorizon(event.target.value)} /></label>
+              <label>Revenue growth (%) · one value or annual comma-separated<input type="text" inputMode="decimal" value={forecastGrowth} onChange={(event) => setForecastGrowth(event.target.value)} /></label>
+              <label>Gross margin (%)<input type="number" min="-100" max="100" step="0.1" value={forecastGrossMargin} onChange={(event) => setForecastGrossMargin(event.target.value)} /></label>
+              <label>EBITDA margin (%)<input type="number" min="-500" max="100" step="0.1" value={forecastEbitdaMargin} onChange={(event) => setForecastEbitdaMargin(event.target.value)} /></label>
+              <label>Operating expenses / revenue (%)<input type="number" min="0" max="100" step="0.1" value={forecastOpex} onChange={(event) => setForecastOpex(event.target.value)} /></label>
+              <label>D&amp;A / revenue (%)<input type="number" min="0" max="100" step="0.1" value={forecastDa} onChange={(event) => setForecastDa(event.target.value)} /></label>
+              <label>Tax rate (%)<input type="number" min="0" max="100" step="0.1" value={forecastTax} onChange={(event) => setForecastTax(event.target.value)} /></label>
+              <label>Capex / revenue (%)<input type="number" min="0" max="100" step="0.1" value={forecastCapex} onChange={(event) => setForecastCapex(event.target.value)} /></label>
+              <label>Interest expense · one value or annual comma-separated ({selectedCompany.reporting_currency})<input type="text" inputMode="decimal" value={forecastInterest} onChange={(event) => setForecastInterest(event.target.value)} /></label>
+              <label>Receivable days (optional)<input type="number" min="0" max="1000" step="any" value={forecastReceivableDays} onChange={(event) => setForecastReceivableDays(event.target.value)} /></label>
+              <label>Inventory days (optional)<input type="number" min="0" max="1000" step="any" value={forecastInventoryDays} onChange={(event) => setForecastInventoryDays(event.target.value)} /></label>
+              <label>Payable days (optional)<input type="number" min="0" max="1000" step="any" value={forecastPayableDays} onChange={(event) => setForecastPayableDays(event.target.value)} /></label>
+              <label>Bull revenue growth (%) · annual values<input type="text" inputMode="decimal" value={bullGrowth} onChange={(event) => setBullGrowth(event.target.value)} /></label>
+              <label>Bull EBITDA margin (%)<input type="number" min="-500" max="100" step="0.1" value={bullEbitda} onChange={(event) => setBullEbitda(event.target.value)} /></label>
+              <label>Bull gross margin (%)<input type="number" min="-100" max="100" step="0.1" value={bullGrossMargin} onChange={(event) => setBullGrossMargin(event.target.value)} /></label>
+              <label>Bear revenue growth (%) · annual values<input type="text" inputMode="decimal" value={bearGrowth} onChange={(event) => setBearGrowth(event.target.value)} /></label>
+              <label>Bear EBITDA margin (%)<input type="number" min="-500" max="100" step="0.1" value={bearEbitda} onChange={(event) => setBearEbitda(event.target.value)} /></label>
+              <label>Bear gross margin (%)<input type="number" min="-100" max="100" step="0.1" value={bearGrossMargin} onChange={(event) => setBearGrossMargin(event.target.value)} /></label>
+              <label className="scenario-json-input">Additional Bull assumptions (JSON)<textarea rows={3} value={bullScenarioOverrides} onChange={(event) => setBullScenarioOverrides(event.target.value)} aria-describedby="scenario-json-help" /></label>
+              <label className="scenario-json-input">Additional Bear assumptions (JSON)<textarea rows={3} value={bearScenarioOverrides} onChange={(event) => setBearScenarioOverrides(event.target.value)} aria-describedby="scenario-json-help" /></label>
+            </div>
+            <p className="forecast-disclosure">Bull/Bear defaults are visible in the saved assumptions: ±2 percentage points of annual revenue growth and ±1 point of available margins. Tax expense is zero for losses; no loss tax benefit is assumed. Unit and currency conversion is unsupported.</p>
+            <p id="scenario-json-help" className="forecast-disclosure">Optional scenario JSON can independently override any supported driver (for example <code>{'{"tax_rate":0.22,"capex_percent_revenue":0.05}'}</code>). The saved assumptions show the complete expanded values used.</p>
+            <div className="forecast-actions"><button className="button-primary" type="button" onClick={() => void saveForecast(false)} disabled={forecastState === "loading"}>{forecastState === "loading" ? "Working…" : "Generate and save forecast"}</button>{forecast && <><button className="button-secondary" type="button" onClick={() => void saveForecast(true)} disabled={forecastState === "loading"}>Save as new revision</button><button className="button-secondary" type="button" onClick={() => void runSensitivity()}>Run sensitivity</button><a className="button-secondary" href={`${API_BASE}/api/companies/${encodeURIComponent(companyId)}/forecasts/${encodeURIComponent(forecast.forecast_id)}/export?format=json`}>Export JSON</a><a className="button-secondary" href={`${API_BASE}/api/companies/${encodeURIComponent(companyId)}/forecasts/${encodeURIComponent(forecast.forecast_id)}/export?format=csv`}>Export CSV</a></>}</div>
+            {forecastState === "loading" && <div className="empty-inline"><span className="spinner" />Loading saved assumptions or calculating scenarios…</div>}
+            {forecastState === "error" && <p className="forecast-error" role="alert">{forecastError}</p>}
+            {forecastState === "ready" && forecastError && <p className="forecast-error" role="alert">{forecastError}</p>}
+            {forecastRecords.length > 0 && <label className="saved-forecast-select">Saved forecast<select value={forecast?.forecast_id ?? ""} onChange={async (event) => { const id = event.target.value; if (!id) return; setForecastState("loading"); try { const item = await requestData<ForecastRecord>(API_BASE, `/api/companies/${encodeURIComponent(companyId)}/forecasts/${encodeURIComponent(id)}`); setForecast(item); setForecastState("ready"); } catch (error) { setForecastError(error instanceof Error ? error.message : "Could not load forecast."); setForecastState("error"); } }}><option value="">Choose saved version</option>{forecastRecords.map((item) => <option key={item.forecast_id} value={item.forecast_id}>{item.baseline_year} · revision {item.revision} · {item.forecast_id.slice(0, 8)}</option>)}</select></label>}
+            {forecast && forecastRevisions.length > 0 && <label className="saved-forecast-select">Forecast revision<select value={String(forecast.revision)} onChange={async (event) => { setForecastState("loading"); try { const item = await requestData<ForecastRecord>(API_BASE, `/api/companies/${encodeURIComponent(companyId)}/forecasts/${encodeURIComponent(forecast.forecast_id)}/revisions/${event.target.value}`); setForecast(item); setForecastState("ready"); } catch (error) { setForecastError(error instanceof Error ? error.message : "Could not load that revision."); setForecastState("error"); } }}>{forecastRevisions.map((item) => <option key={item.revision} value={item.revision}>Revision {item.revision}{item.current ? " · current" : " · archived"} · {item.saved_at}</option>)}</select></label>}
+            {forecast && <>
+              <p className="forecast-disclosure">{forecast.methodology_version} · {forecast.baseline_year} actual → {forecast.forecast_horizon}-year forecast · revision {forecast.revision}{forecast.input_data_stale ? " · WARNING: baseline data changed since this version was created" : " · baseline unchanged"}</p>
+              {forecast.result?.missing_historical_years?.length ? <p className="forecast-disclosure">Historical periods unavailable: {forecast.result.missing_historical_years.join(", ")}. Gaps are not filled.</p> : null}
+              <details className="forecast-assumptions"><summary>Saved assumptions and methodology details</summary><pre>{JSON.stringify(forecast.assumptions, null, 2)}</pre></details>
+              <p className="forecast-disclosure">Gross profit and margins for actual periods are calculated from the stored reported revenue/COGS and profit inputs. Forecast baseline observations: {forecast.result?.created_from_observation_ids?.join(", ") ?? "not available"}.</p>
+              {forecast.result?.source_provenance?.map((source) => <p className="forecast-disclosure" key={`${source.source_id}-${source.financial_year}`}>Source: {source.publisher} · {source.source_id} · {source.financial_year}{source.publication_date ? ` · published ${source.publication_date}` : ""}{source.source_url ? <> · <a href={source.source_url} target="_blank" rel="noreferrer">Disclosure</a></> : ""}</p>)}
+              {(["base", "bull", "bear"] as const).map((scenario) => { const scenarioData = forecast.result?.scenarios[scenario]; const periods = scenarioData ? [...(scenarioData.actual_history ?? [scenarioData.actual_baseline]), ...scenarioData.periods] : []; return <div className="forecast-scenario" key={scenario}><h3>{scenario[0].toUpperCase() + scenario.slice(1)} scenario <small>assumption-driven, not probability-weighted</small></h3><div className="benchmark-table-wrap"><table className="benchmark-table"><thead><tr><th>Period</th><th>Type</th>{forecastColumns.map(([, title]) => <th key={title}>{title}</th>)}</tr></thead><tbody>{periods.map((period) => { const values = period.values && typeof period.values === "object" ? period.values : period; return <tr key={`${scenario}-${period.financial_year}`}><td>{period.financial_year}</td><td>{period.period_type === "actual" ? "Actual · reported inputs" : "Forecast · modeled"}</td>{forecastColumns.map(([key, , percentage]) => { const value = values[key]; return <td key={key}>{value === null || value === undefined ? "Unavailable" : percentage ? `${(Number(value) * 100).toFixed(1)}%` : `${String(value)} ${period.unit} ${period.currency}`}</td> })}</tr>})}</tbody></table></div>{periods.some((period) => period.unavailable?.length) && <details><summary>Unavailable forecast components</summary>{periods.filter((period) => period.unavailable?.length).map((period) => <p key={`${scenario}-missing-${period.financial_year}`}>{period.financial_year}: {period.unavailable?.map((item) => `${item.metric}: ${item.reason}`).join("; ")}</p>)}</details>}</div>; })}
+              {sensitivity.length > 0 && <div className="sensitivity-results"><h3>Sensitivity results</h3><p>Each cell reruns the forecasting engine. The saved assumptions were not changed.</p>{sensitivity.map((cell, index) => <details key={`sensitivity-${index}`}><summary>Growth {String(cell.revenue_growth)} · EBITDA margin {String(cell.ebitda_margin)}</summary><pre>{JSON.stringify(cell.base, null, 2)}</pre></details>)}</div>}
+            </>}
+          </div>}
         </section>
 
         <section className="content-section provenance-section" id="provenance">

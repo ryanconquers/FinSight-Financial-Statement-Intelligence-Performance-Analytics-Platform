@@ -2,6 +2,8 @@
 
 M3 implements these calculations in `src/finsight/metrics/calculator.py`. They are pure functions over typed observations; SQLite access is isolated in `metrics/repository.py`. Results contain the formula/version, reporting period, status, source-observation IDs and source IDs.
 
+M5 forecasts do not replace or write calculated M3 metrics. They use source-backed annual observations as a baseline and separate Decimal driver formulas, assumptions, and forecast statuses. See [`forecasting.md`](forecasting.md) for formulas, tax treatment, and supported inputs.
+
 ## Inputs and shared rules
 
 Line-item IDs below are read from the named statement:

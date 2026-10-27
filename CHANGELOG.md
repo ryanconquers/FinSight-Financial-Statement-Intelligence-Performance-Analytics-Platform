@@ -4,6 +4,13 @@ All notable project changes are documented here in reverse chronological order.
 
 ## [Unreleased]
 
+### M5 — Assumption-driven forecasting and scenario analysis
+
+- **Features added:** Pure Decimal driver engine for revenue, gross profit/COGS, operating expenses, EBITDA, EBIT, taxes, net income, working capital, simplified operating cash flow, and unlevered free cash flow; explicit year-by-year Base/Bull/Bear assumptions; bounded engine-backed sensitivity; actual/forecast period series; SQLite v1-to-v2 migration with company-scoped forecast snapshots and immutable revisions; stale-baseline detection; forecast CRUD/scenario/revision/sensitivity/actual/export APIs; GitHub Pages POST/PUT CORS support; frontend forecast form, scenario tables, saved forecast retrieval, sensitivity, and JSON/CSV downloads with assumptions, definitions, provenance, and limitations.
+- **Assumption disclosure:** Default Bull/Bear adjustments are exposed and editable (±2 percentage points revenue growth, ±1 point supported margins), are illustrative and are not probabilities or predictions. Loss tax benefits, unsupported line items, and cash-flow simplifications are explicit.
+- **Tests:** Full Python suite — 153 passed; frontend API-client tests — 19 passed; ESLint, TypeScript, and Next.js production build passed; `git diff --check` passed.
+- **Limitations:** No source-backed company records are onboarded; company forecasts have not been exercised against live data. The M5 source branch is not deployed. Render SQLite remains ephemeral and is not a durable production store.
+
 ### M4 — Historical analysis, insights, peer comparison, and reporting
 
 - **Features added:** M4A configurable risk rules remain integrated. Added gross profit/margin, deterministic trend/contrasting/coincident indicators, exact-period peer comparisons with compatibility exclusions and descriptive medians, raw reported-observation inspection, analyst JSON and metric CSV exports, SQLite schema versioning, strict all-or-nothing CSV imports, persistent-volume guard, and backup/verify/restore commands. No derived analytics are persisted.

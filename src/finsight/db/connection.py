@@ -6,7 +6,8 @@ import sqlite3
 from pathlib import Path
 
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+FORECAST_MIGRATION_PATH = Path(__file__).with_name("migrations") / "002_forecasts.sql"
 
 
 def validate_database_path(path: str | Path) -> None:
@@ -54,7 +55,15 @@ def connect_database(path: str | Path) -> sqlite3.Connection:
             migration = (
                 "BEGIN IMMEDIATE;\n"
                 + SCHEMA_PATH.read_text(encoding="utf-8")
-                + f"\nPRAGMA user_version = {SCHEMA_VERSION};\nCOMMIT;"
+                + "\nPRAGMA user_version = 1;\nCOMMIT;"
+            )
+            connection.executescript(migration)
+            version = 1
+        if version < 2:
+            migration = (
+                "BEGIN IMMEDIATE;\n"
+                + FORECAST_MIGRATION_PATH.read_text(encoding="utf-8")
+                + "\nPRAGMA user_version = 2;\nCOMMIT;"
             )
             connection.executescript(migration)
     except Exception:

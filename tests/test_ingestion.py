@@ -348,7 +348,7 @@ def test_sqlite_schema_is_versioned_and_backup_is_consistent(tmp_path):
     with connect_database(original_path) as database:
         database.execute("INSERT INTO companies (company_id, company_name, reporting_currency) VALUES ('TEST_CO', 'Test Company', 'INR')")
         database.commit()
-        assert database.execute("PRAGMA user_version").fetchone()[0] == 1
+        assert database.execute("PRAGMA user_version").fetchone()[0] == 2
         backup_database(database, backup_path)
     with connect_database(backup_path) as backup:
         assert backup.execute("SELECT company_name FROM companies WHERE company_id = 'TEST_CO'").fetchone()[0] == "Test Company"
@@ -368,6 +368,50 @@ def test_future_sqlite_schema_version_fails_clearly(tmp_path):
         database.execute("PRAGMA user_version = 999")
     with pytest.raises(RuntimeError, match="newer than supported"):
         connect_database(path)
+
+
+def test_schema_version_one_migrates_transactionally_to_forecast_tables(tmp_path):
+    from finsight.db.connection import SCHEMA_PATH
+
+    path = tmp_path / "version-one.sqlite3"
+    with sqlite3.connect(path) as database:
+        database.executescript(SCHEMA_PATH.read_text(encoding="utf-8") + "\nPRAGMA user_version = 1;")
+    with connect_database(path) as database:
+        assert database.execute("PRAGMA user_version").fetchone()[0] == 2
+        tables = {row[0] for row in database.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        assert {"forecasts", "forecast_revisions"}.issubset(tables)
+
+
+def test_forecast_schema_migration_rolls_back_ddl_on_failure(tmp_path, monkeypatch):
+    import finsight.db.connection as database_module
+
+    path = tmp_path / "version-one-bad-migration.sqlite3"
+    with sqlite3.connect(path) as database:
+        database.executescript(database_module.SCHEMA_PATH.read_text(encoding="utf-8") + "\nPRAGMA user_version = 1;")
+    invalid_migration = tmp_path / "invalid-forecast-migration.sql"
+    invalid_migration.write_text("CREATE TABLE migration_should_rollback (id INTEGER); INVALID SQL;", encoding="utf-8")
+    monkeypatch.setattr(database_module, "FORECAST_MIGRATION_PATH", invalid_migration)
+    with pytest.raises(sqlite3.Error):
+        connect_database(path)
+    with sqlite3.connect(path) as database:
+        assert database.execute("PRAGMA user_version").fetchone()[0] == 1
+        assert database.execute("SELECT name FROM sqlite_master WHERE name='migration_should_rollback'").fetchone() is None
+
+
+def test_fresh_schema_records_version_one_until_forecast_migration_succeeds(tmp_path, monkeypatch):
+    import finsight.db.connection as database_module
+
+    invalid_migration = tmp_path / "invalid-fresh-forecast-migration.sql"
+    invalid_migration.write_text("CREATE TABLE migration_should_rollback (id INTEGER); INVALID SQL;", encoding="utf-8")
+    monkeypatch.setattr(database_module, "FORECAST_MIGRATION_PATH", invalid_migration)
+    path = tmp_path / "fresh-bad-migration.sqlite3"
+    with pytest.raises(sqlite3.Error):
+        connect_database(path)
+    with sqlite3.connect(path) as database:
+        assert database.execute("PRAGMA user_version").fetchone()[0] == 1
+        assert database.execute("SELECT name FROM sqlite_master WHERE name='companies'").fetchone() is not None
+        assert database.execute("SELECT name FROM sqlite_master WHERE name='migration_should_rollback'").fetchone() is None
+        assert database.execute("SELECT name FROM sqlite_master WHERE name='forecasts'").fetchone() is None
 
 
 def test_schema_bootstrap_failure_rolls_back_partial_ddl(tmp_path, monkeypatch):
@@ -391,4 +435,4 @@ def test_production_storage_guard_rejects_ephemeral_path_and_accepts_volume(tmp_
     with pytest.raises(ValueError, match="absolute"):
         connect_database("data/finsight.sqlite3")
     with connect_database(tmp_path / "persistent-volume" / "finsight.sqlite3") as database:
-        assert database.execute("PRAGMA user_version").fetchone()[0] == 1
+        assert database.execute("PRAGMA user_version").fetchone()[0] == 2

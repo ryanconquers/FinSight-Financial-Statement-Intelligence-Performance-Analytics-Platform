@@ -206,3 +206,21 @@ select { appearance: none; background: var(--white); border: 1px solid #dce3de; 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; scroll-behavior: auto !important; transition-duration: .01ms !important; }
 }
+
+.forecast-panel { display: grid; gap: 18px; }
+.forecast-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; padding: 18px; border: 1px solid var(--line, #e2e8f0); border-radius: 14px; background: var(--surface, #fff); }
+.forecast-form label, .saved-forecast-select { display: grid; gap: 6px; color: var(--ink, #172033); font-size: .82rem; font-weight: 600; }
+.forecast-form input, .forecast-form select, .saved-forecast-select select { min-width: 0; padding: 9px 10px; border: 1px solid var(--line, #d8dee8); border-radius: 8px; background: white; color: inherit; font: inherit; }
+.forecast-disclosure { color: var(--muted, #667085); font-size: .86rem; line-height: 1.55; }
+.forecast-actions { display: flex; flex-wrap: wrap; gap: 9px; align-items: center; }
+.forecast-error { color: #a12622; padding: 12px; border-radius: 8px; background: #fff0ef; }
+.forecast-scenario { margin-top: 18px; }
+.forecast-scenario h3, .sensitivity-results h3 { display: flex; gap: 12px; align-items: baseline; }
+.forecast-scenario h3 small { color: var(--muted, #667085); font-size: .75rem; font-weight: 400; }
+.forecast-scenario .benchmark-table-wrap { overflow-x: auto; }
+.sensitivity-results details { padding: 10px; border-bottom: 1px solid var(--line, #e2e8f0); }
+.sensitivity-results pre { max-height: 300px; overflow: auto; font-size: .75rem; }
+.saved-forecast-select { max-width: 400px; }
+.scenario-json-input { grid-column: span 2; }
+.scenario-json-input textarea { width: 100%; resize: vertical; padding: 9px 10px; border: 1px solid var(--line, #d8dee8); border-radius: 8px; color: inherit; font: 400 .8rem/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+@media (max-width: 560px) { .scenario-json-input { grid-column: auto; } }

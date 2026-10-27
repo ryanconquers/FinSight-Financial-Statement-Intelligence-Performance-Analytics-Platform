@@ -274,3 +274,63 @@ test("requestData validates original reported observation fields", async () => {
     /unexpected shape/,
   );
 });
+
+test("requestData posts forecast assumptions and validates saved scenario responses", async () => {
+  const body = { baseline_year: "FY2024", forecast_horizon: 1, assumptions: { revenue_growth: [0.1] } };
+  let requestInit;
+  const result = await requestData("https://api.example.test", "/api/companies/TEST_CO/forecasts?statement_basis=consolidated", {
+    method: "POST", body,
+    fetchImpl: async (_url, init) => {
+      requestInit = init;
+      return jsonResponse({ data: {
+        forecast_id: "f-1", company_id: "TEST_CO", statement_basis: "consolidated", baseline_year: "FY2024",
+        forecast_horizon: 1, methodology_version: "finsight-driver-forecast-v1", assumptions: {}, revision: 1,
+        result: { scenarios: Object.fromEntries(["base", "bull", "bear"].map((name) => [name, {
+          actual_baseline: { financial_year: "FY2024", period_type: "actual", currency: "INR", unit: "INR_crore", values: {} },
+          periods: [{ financial_year: "FY2025", period_type: "forecast", currency: "INR", unit: "INR_crore", unavailable: [] }],
+        }])) },
+      }, meta: {} }, 201);
+    },
+  });
+  assert.equal(requestInit.method, "POST");
+  assert.deepEqual(JSON.parse(requestInit.body), body);
+  assert.equal(result.forecast_id, "f-1");
+});
+
+test("requestData rejects malformed saved forecasts and validates actual-forecast states", async () => {
+  await assert.rejects(requestData("https://api.example.test", "/api/companies/TEST_CO/forecasts/f-1", {
+    fetchImpl: async () => jsonResponse({ data: { forecast_id: "f-1", company_id: "TEST_CO" }, meta: {} }),
+  }), /unexpected forecast shape/);
+  const comparison = await requestData("https://api.example.test", "/api/companies/TEST_CO/forecasts/f-1/actual-vs-forecast", {
+    fetchImpl: async () => jsonResponse({ data: { company_id: "TEST_CO", statement_basis: "consolidated", periods: [{ financial_year: "FY2024", period_type: "actual", currency: "INR", unit: "INR_crore" }], input_data_stale: false }, meta: {} }),
+  });
+  assert.equal(comparison.periods[0].period_type, "actual");
+});
+
+test("requestData does not retry forecast mutations after an ambiguous network failure", async () => {
+  let attempts = 0;
+  await assert.rejects(requestData("https://api.example.test", "/api/companies/TEST_CO/forecasts?statement_basis=consolidated", {
+    method: "POST", body: { baseline_year: "FY2024" }, retries: 3, waitImpl: async () => {},
+    fetchImpl: async () => { attempts += 1; throw new TypeError("connection closed after request"); },
+  }), /may be waking after inactivity/);
+  assert.equal(attempts, 1);
+});
+
+test("requestData validates forecast revision histories and immutable snapshots", async () => {
+  const summaries = await requestData("https://api.example.test", "/api/companies/TEST_CO/forecasts/f-1/revisions", {
+    fetchImpl: async () => jsonResponse({ data: [{ revision: 1, assumptions: {}, input_fingerprint: "sha", saved_at: "2026-01-01T00:00:00Z" }], meta: { count: 1 } }),
+  });
+  assert.equal(summaries[0].revision, 1);
+  const snapshot = await requestData("https://api.example.test", "/api/companies/TEST_CO/forecasts/f-1/revisions/1", {
+    fetchImpl: async () => jsonResponse({ data: {
+      forecast_id: "f-1", company_id: "TEST_CO", statement_basis: "consolidated", baseline_year: "FY2024",
+      forecast_horizon: 1, methodology_version: "finsight-driver-forecast-v1", assumptions: {}, revision: 1,
+      input_fingerprint: "sha", current: false, input_data_stale: false, saved_at: "2026-01-01T00:00:00Z",
+      result: { scenarios: Object.fromEntries(["base", "bull", "bear"].map((name) => [name, {
+        actual_baseline: { financial_year: "FY2024", period_type: "actual", currency: "INR", unit: "INR_crore", values: {} },
+        periods: [{ financial_year: "FY2025", period_type: "forecast", currency: "INR", unit: "INR_crore" }],
+      }])) },
+    }, meta: {} }),
+  });
+  assert.equal(snapshot.current, false);
+});
